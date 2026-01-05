@@ -1,0 +1,83 @@
+[project]
+name = "lighthouse-identity"
+version = "0.1.0"
+description = "Provider-agnostic identity management library with AWS Cognito support"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "Inspectio", email = "dev@inspectio.ai"}
+]
+keywords = ["identity", "cognito", "authentication", "user-management", "aws"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Systems Administration :: Authentication/Directory",
+]
+
+dependencies = [
+    "boto3>=1.34.0",
+    "structlog>=24.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "moto[cognitoidp]>=5.0.0",
+    "ruff>=0.2.0",
+    "mypy>=1.8.0",
+    "boto3-stubs[cognito-idp]>=1.34.0",
+    "build>=1.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/inspectioai/lighthouse"
+Documentation = "https://github.com/inspectioai/lighthouse/tree/main/docs"
+Repository = "https://github.com/inspectioai/lighthouse"
+Issues = "https://github.com/inspectioai/lighthouse/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["lighthouse"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-v --tb=short --cov=lighthouse --cov-report=term-missing"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.coverage.run]
+source = ["lighthouse"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@abstractmethod",
+]
