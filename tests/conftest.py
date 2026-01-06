@@ -2,7 +2,7 @@
 
 import os
 import pytest
-from moto import mock_cognitoidp
+from moto import mock_aws
 
 
 @pytest.fixture
@@ -18,7 +18,7 @@ def aws_credentials():
 @pytest.fixture
 def mock_cognito(aws_credentials):
     """Mock Cognito service."""
-    with mock_cognitoidp():
+    with mock_aws():
         yield
 
 

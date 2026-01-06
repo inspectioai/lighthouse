@@ -1,5 +1,7 @@
 """AWS Cognito implementation of IdentityProvider."""
 
+from __future__ import annotations
+
 import secrets
 import string
 from datetime import datetime, timezone
@@ -9,14 +11,27 @@ import boto3
 import structlog
 from botocore.exceptions import ClientError
 
-from lighthouse.exceptions import IdentityProviderError, PoolExistsError, UserExistsError
 from lighthouse.base import IdentityProvider
+from lighthouse.exceptions import (
+    IdentityProviderError,
+    InvalidCredentialsError,
+    InvalidPasswordError,
+    PoolExistsError,
+    SessionExpiredError,
+    TenantNotFoundError,
+    TooManyRequestsError,
+    UserExistsError,
+    UserNotConfirmedError,
+)
 from lighthouse.models import (
+    AuthChallenge,
+    AuthResult,
     IdentityUser,
     InviteResult,
     PaginatedUsers,
     PoolConfig,
     PoolInfo,
+    TenantConfig,
     UserStatus,
 )
 
@@ -33,11 +48,31 @@ class CognitoIdentityProvider(IdentityProvider):
 
     Uses Cognito User Pools for user management with custom:role attribute
     for storing user roles.
+
+    Args:
+        region: AWS region for Cognito
+        tenant_pool_prefix: Prefix used to identify tenant pools (e.g., "inspectio-")
+        endpoint_url: Custom endpoint URL for LocalStack or other AWS-compatible services
     """
 
-    def __init__(self, region: str):
+    def __init__(
+        self,
+        region: str,
+        tenant_pool_prefix: str = "inspectio-",
+        endpoint_url: Optional[str] = None,
+    ):
         self.region = region
-        self._client = boto3.client("cognito-idp", region_name=region)
+        self.tenant_pool_prefix = tenant_pool_prefix
+        self._endpoint_url = endpoint_url
+
+        # Create client with optional custom endpoint
+        client_kwargs: dict[str, Any] = {"region_name": region}
+        if endpoint_url:
+            client_kwargs["endpoint_url"] = endpoint_url
+        self._client = boto3.client("cognito-idp", **client_kwargs)
+
+        # Tenant configuration cache
+        self._tenant_configs: dict[str, TenantConfig] = {}
 
     def _generate_temp_password(self, length: int = 12) -> str:
         """Generate a secure temporary password meeting Cognito requirements."""
@@ -547,3 +582,364 @@ class CognitoIdentityProvider(IdentityProvider):
                 log.error("cognito_resend_error", error=str(e), pool_id=pool_id, user_id=user_id)
                 raise IdentityProviderError(f"Failed to resend invite: {e}", "resend_invite")
             return True
+
+    # ==================== Tenant Discovery ====================
+
+    def _extract_tenant_id(self, pool_name: str) -> Optional[str]:
+        """Extract tenant ID from pool name.
+
+        Pool naming convention: {prefix}{tenant_id}
+        Example: inspectio-acme-e3ef8d7f -> acme-e3ef8d7f
+
+        Returns everything after the prefix as the tenant ID.
+        """
+        if not pool_name.startswith(self.tenant_pool_prefix):
+            return None
+        tenant_id = pool_name[len(self.tenant_pool_prefix) :]
+        return tenant_id.lower() if tenant_id else None
+
+    def _find_app_client(self, pool_id: str) -> Optional[str]:
+        """Find the first app client for a user pool."""
+        try:
+            paginator = self._client.get_paginator("list_user_pool_clients")
+            for page in paginator.paginate(UserPoolId=pool_id, MaxResults=60):
+                for app_client in page.get("UserPoolClients", []):
+                    # Return first client that supports user password auth
+                    return app_client["ClientId"]
+        except ClientError:
+            pass
+        return None
+
+    def _create_tenant_config(
+        self, tenant_id: str, pool_id: str, pool_name: str, client_id: str
+    ) -> TenantConfig:
+        """Create a TenantConfig from pool details."""
+        issuer = f"https://cognito-idp.{self.region}.amazonaws.com/{pool_id}"
+        return TenantConfig(
+            tenant_id=tenant_id,
+            issuer=issuer,
+            jwks_url=f"{issuer}/.well-known/jwks.json",
+            audience=client_id,
+            pool_id=pool_id,
+            client_id=client_id,
+            region=self.region,
+            status="active",
+        )
+
+    async def discover_tenants(self) -> dict[str, TenantConfig]:
+        """Discover all tenant configurations from Cognito."""
+        log.info("discovering_tenants", region=self.region, prefix=self.tenant_pool_prefix)
+
+        try:
+            tenant_configs: dict[str, TenantConfig] = {}
+            paginator = self._client.get_paginator("list_user_pools")
+
+            for page in paginator.paginate(MaxResults=60):
+                for pool in page.get("UserPools", []):
+                    pool_name = pool["Name"]
+                    pool_id = pool["Id"]
+
+                    tenant_id = self._extract_tenant_id(pool_name)
+                    if not tenant_id:
+                        continue
+
+                    client_id = self._find_app_client(pool_id)
+                    if not client_id:
+                        log.warning("no_app_client_found", pool_id=pool_id, pool_name=pool_name)
+                        continue
+
+                    config = self._create_tenant_config(tenant_id, pool_id, pool_name, client_id)
+                    tenant_configs[tenant_id] = config
+
+            self._tenant_configs = tenant_configs
+            log.info("tenants_discovered", count=len(tenant_configs))
+            return tenant_configs
+
+        except ClientError as e:
+            log.error("tenant_discovery_failed", error=str(e))
+            raise IdentityProviderError(f"Failed to discover tenants: {e}", "discover_tenants")
+
+    async def get_tenant_config(self, tenant_id: str) -> TenantConfig:
+        """Get configuration for a specific tenant."""
+        # Check cache first
+        if tenant_id in self._tenant_configs:
+            return self._tenant_configs[tenant_id]
+
+        # Not in cache - search Cognito
+        log.debug("tenant_cache_miss", tenant_id=tenant_id)
+
+        try:
+            paginator = self._client.get_paginator("list_user_pools")
+            for page in paginator.paginate(MaxResults=60):
+                for pool in page.get("UserPools", []):
+                    pool_name = pool["Name"]
+                    pool_id = pool["Id"]
+
+                    extracted_tenant = self._extract_tenant_id(pool_name)
+                    if extracted_tenant == tenant_id:
+                        client_id = self._find_app_client(pool_id)
+                        if client_id:
+                            config = self._create_tenant_config(
+                                tenant_id, pool_id, pool_name, client_id
+                            )
+                            self._tenant_configs[tenant_id] = config
+                            return config
+
+            raise TenantNotFoundError(tenant_id)
+
+        except TenantNotFoundError:
+            raise
+        except ClientError as e:
+            log.error("get_tenant_config_failed", tenant_id=tenant_id, error=str(e))
+            raise IdentityProviderError(f"Failed to get tenant config: {e}", "get_tenant_config")
+
+    async def get_tenant_config_by_issuer(self, issuer: str) -> TenantConfig:
+        """Get tenant configuration by JWT issuer URL."""
+        # Check cache first
+        for config in self._tenant_configs.values():
+            if config.issuer == issuer:
+                return config
+
+        # Extract pool_id from issuer URL and search
+        # Issuer format: https://cognito-idp.{region}.amazonaws.com/{pool_id}
+        try:
+            pool_id = issuer.split("/")[-1]
+        except Exception:
+            raise TenantNotFoundError(f"Invalid issuer format: {issuer}")
+
+        log.debug("tenant_issuer_cache_miss", issuer=issuer)
+
+        try:
+            paginator = self._client.get_paginator("list_user_pools")
+            for page in paginator.paginate(MaxResults=60):
+                for pool in page.get("UserPools", []):
+                    if pool["Id"] == pool_id:
+                        pool_name = pool["Name"]
+                        tenant_id = self._extract_tenant_id(pool_name)
+                        if tenant_id:
+                            client_id = self._find_app_client(pool_id)
+                            if client_id:
+                                config = self._create_tenant_config(
+                                    tenant_id, pool_id, pool_name, client_id
+                                )
+                                self._tenant_configs[tenant_id] = config
+                                return config
+
+            raise TenantNotFoundError(f"No tenant found for issuer: {issuer}")
+
+        except TenantNotFoundError:
+            raise
+        except ClientError as e:
+            log.error("get_tenant_by_issuer_failed", issuer=issuer, error=str(e))
+            raise IdentityProviderError(
+                f"Failed to get tenant by issuer: {e}", "get_tenant_config_by_issuer"
+            )
+
+    # ==================== Authentication Flows ====================
+
+    async def authenticate(
+        self,
+        tenant_id: str,
+        username: str,
+        password: str,
+    ) -> AuthResult | AuthChallenge:
+        """Authenticate a user against a tenant's Cognito pool."""
+        config = await self.get_tenant_config(tenant_id)
+
+        try:
+            resp = self._client.initiate_auth(
+                ClientId=config.client_id,
+                AuthFlow="USER_PASSWORD_AUTH",
+                AuthParameters={"USERNAME": username, "PASSWORD": password},
+            )
+
+            # Check for challenge
+            if "ChallengeName" in resp:
+                log.info(
+                    "auth_challenge_required",
+                    tenant_id=tenant_id,
+                    challenge=resp["ChallengeName"],
+                )
+                return AuthChallenge(
+                    challenge_name=resp["ChallengeName"],
+                    session=resp.get("Session", ""),
+                    challenge_parameters=resp.get("ChallengeParameters"),
+                )
+
+            # Successful auth
+            result = resp.get("AuthenticationResult", {})
+            log.info("user_authenticated", tenant_id=tenant_id)
+            return AuthResult(
+                access_token=result.get("AccessToken", ""),
+                id_token=result.get("IdToken", ""),
+                refresh_token=result.get("RefreshToken", ""),
+                expires_in=result.get("ExpiresIn", 3600),
+                token_type=result.get("TokenType", "Bearer"),
+            )
+
+        except self._client.exceptions.NotAuthorizedException:
+            raise InvalidCredentialsError()
+        except self._client.exceptions.UserNotConfirmedException:
+            raise UserNotConfirmedError(username)
+        except ClientError as e:
+            log.error("authentication_failed", tenant_id=tenant_id, error=str(e))
+            raise IdentityProviderError(f"Authentication failed: {e}", "authenticate")
+
+    async def respond_to_challenge(
+        self,
+        tenant_id: str,
+        username: str,
+        challenge_name: str,
+        session: str,
+        challenge_responses: dict[str, str],
+    ) -> AuthResult | AuthChallenge:
+        """Respond to an authentication challenge."""
+        config = await self.get_tenant_config(tenant_id)
+
+        # Build challenge responses with username
+        responses = {"USERNAME": username, **challenge_responses}
+
+        try:
+            resp = self._client.respond_to_auth_challenge(
+                ClientId=config.client_id,
+                ChallengeName=challenge_name,
+                Session=session,
+                ChallengeResponses=responses,
+            )
+
+            # Check for another challenge
+            if "ChallengeName" in resp:
+                return AuthChallenge(
+                    challenge_name=resp["ChallengeName"],
+                    session=resp.get("Session", ""),
+                    challenge_parameters=resp.get("ChallengeParameters"),
+                )
+
+            # Successful
+            result = resp.get("AuthenticationResult", {})
+            log.info("challenge_responded", tenant_id=tenant_id, challenge=challenge_name)
+            return AuthResult(
+                access_token=result.get("AccessToken", ""),
+                id_token=result.get("IdToken", ""),
+                refresh_token=result.get("RefreshToken", ""),
+                expires_in=result.get("ExpiresIn", 3600),
+                token_type=result.get("TokenType", "Bearer"),
+            )
+
+        except self._client.exceptions.InvalidPasswordException as e:
+            raise InvalidPasswordError(str(e))
+        except self._client.exceptions.NotAuthorizedException:
+            raise SessionExpiredError()
+        except self._client.exceptions.ExpiredCodeException:
+            raise SessionExpiredError()
+        except ClientError as e:
+            log.error("challenge_response_failed", tenant_id=tenant_id, error=str(e))
+            raise IdentityProviderError(f"Challenge response failed: {e}", "respond_to_challenge")
+
+    async def refresh_tokens(
+        self,
+        tenant_id: str,
+        refresh_token: str,
+    ) -> AuthResult:
+        """Refresh access token using a refresh token."""
+        config = await self.get_tenant_config(tenant_id)
+
+        try:
+            resp = self._client.initiate_auth(
+                ClientId=config.client_id,
+                AuthFlow="REFRESH_TOKEN_AUTH",
+                AuthParameters={"REFRESH_TOKEN": refresh_token},
+            )
+
+            result = resp.get("AuthenticationResult", {})
+            log.info("tokens_refreshed", tenant_id=tenant_id)
+
+            return AuthResult(
+                access_token=result.get("AccessToken", ""),
+                id_token=result.get("IdToken", ""),
+                # Refresh token is not returned on refresh
+                refresh_token=refresh_token,
+                expires_in=result.get("ExpiresIn", 3600),
+                token_type=result.get("TokenType", "Bearer"),
+            )
+
+        except self._client.exceptions.NotAuthorizedException:
+            raise SessionExpiredError("Refresh token expired. Please login again.")
+        except ClientError as e:
+            log.error("token_refresh_failed", tenant_id=tenant_id, error=str(e))
+            raise IdentityProviderError(f"Token refresh failed: {e}", "refresh_tokens")
+
+    async def initiate_password_reset(
+        self,
+        tenant_id: str,
+        username: str,
+    ) -> dict[str, str]:
+        """Initiate password reset flow."""
+        config = await self.get_tenant_config(tenant_id)
+
+        try:
+            resp = self._client.forgot_password(
+                ClientId=config.client_id,
+                Username=username,
+            )
+
+            code_delivery = resp.get("CodeDeliveryDetails", {})
+            log.info("password_reset_initiated", tenant_id=tenant_id)
+
+            return {
+                "message": "Verification code sent",
+                "delivery_medium": code_delivery.get("DeliveryMedium", "EMAIL"),
+                "destination": code_delivery.get("Destination", ""),
+            }
+
+        except self._client.exceptions.UserNotFoundException:
+            # Don't reveal if user exists
+            return {
+                "message": "If the email exists, a verification code has been sent",
+                "delivery_medium": "EMAIL",
+                "destination": "",
+            }
+        except self._client.exceptions.LimitExceededException:
+            raise TooManyRequestsError()
+        except ClientError as e:
+            log.error("password_reset_initiate_failed", tenant_id=tenant_id, error=str(e))
+            raise IdentityProviderError(
+                f"Password reset initiation failed: {e}", "initiate_password_reset"
+            )
+
+    async def confirm_password_reset(
+        self,
+        tenant_id: str,
+        username: str,
+        confirmation_code: str,
+        new_password: str,
+    ) -> bool:
+        """Confirm password reset with verification code."""
+        config = await self.get_tenant_config(tenant_id)
+
+        try:
+            self._client.confirm_forgot_password(
+                ClientId=config.client_id,
+                Username=username,
+                ConfirmationCode=confirmation_code,
+                Password=new_password,
+            )
+
+            log.info("password_reset_confirmed", tenant_id=tenant_id)
+            return True
+
+        except self._client.exceptions.CodeMismatchException:
+            raise InvalidCredentialsError("Invalid verification code")
+        except self._client.exceptions.ExpiredCodeException:
+            raise SessionExpiredError("Verification code has expired")
+        except self._client.exceptions.InvalidPasswordException as e:
+            raise InvalidPasswordError(str(e))
+        except self._client.exceptions.UserNotFoundException:
+            raise InvalidCredentialsError("Invalid verification code")
+        except self._client.exceptions.LimitExceededException:
+            raise TooManyRequestsError()
+        except ClientError as e:
+            log.error("password_reset_confirm_failed", tenant_id=tenant_id, error=str(e))
+            raise IdentityProviderError(
+                f"Password reset confirmation failed: {e}", "confirm_password_reset"
+            )

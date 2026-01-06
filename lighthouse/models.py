@@ -1,5 +1,7 @@
 """Identity provider models - provider-agnostic data structures."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -86,3 +88,55 @@ class PaginatedUsers:
     users: list[IdentityUser]
     next_token: Optional[str] = None
     has_more: bool = False
+
+
+@dataclass
+class TenantConfig:
+    """Configuration for a tenant (used for JWT validation and auth flows).
+
+    This model contains all information needed to authenticate users
+    and validate JWT tokens for a specific tenant.
+    """
+
+    tenant_id: str
+    issuer: str  # e.g., https://cognito-idp.{region}.amazonaws.com/{pool_id}
+    jwks_url: str  # e.g., {issuer}/.well-known/jwks.json
+    audience: str  # Client ID for token validation
+    pool_id: str  # Provider-specific pool identifier
+    client_id: str  # Provider-specific client identifier
+    region: str  # Provider region
+    status: str = "active"
+    metadata: dict[str, Any] | None = None
+
+
+@dataclass
+class AuthResult:
+    """Result of a successful authentication."""
+
+    access_token: str
+    id_token: str
+    refresh_token: str
+    expires_in: int
+    token_type: str = "Bearer"
+
+
+@dataclass
+class AuthChallenge:
+    """Authentication challenge requiring additional action."""
+
+    challenge_name: str  # e.g., NEW_PASSWORD_REQUIRED, MFA_REQUIRED
+    session: str
+    challenge_parameters: dict[str, Any] | None = None
+
+
+@dataclass
+class TokenClaims:
+    """Extracted claims from a validated JWT token."""
+
+    sub: str  # User ID
+    email: Optional[str] = None
+    role: Optional[str] = None
+    tenant_id: Optional[str] = None
+    exp: Optional[int] = None
+    iat: Optional[int] = None
+    raw_claims: dict[str, Any] | None = None
