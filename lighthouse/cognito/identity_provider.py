@@ -11,7 +11,7 @@ import boto3
 import structlog
 from botocore.exceptions import ClientError
 
-from lighthouse.base import IdentityProvider
+from lighthouse.core.identity_provider import IdentityProvider
 from lighthouse.templates import get_invitation_email_template
 from lighthouse.exceptions import (
     IdentityProviderError,
@@ -723,6 +723,36 @@ class CognitoIdentityProvider(IdentityProvider):
             raise IdentityProviderError(
                 f"Failed to get tenant by issuer: {e}", "get_tenant_config_by_issuer"
             )
+
+    def get_tenant_config_by_issuer_sync(self, issuer: str) -> TenantConfig:
+        """Synchronous version of get_tenant_config_by_issuer.
+
+        Used by CognitoVerifier for JWT validation which cannot be async.
+        This method only checks the cache and does not make API calls.
+
+        Args:
+            issuer: JWT issuer URL
+                Format: https://cognito-idp.{region}.amazonaws.com/{pool_id}
+
+        Returns:
+            TenantConfig for the tenant
+
+        Raises:
+            TenantNotFoundError: If no tenant matches issuer in cache
+
+        Note:
+            This method requires that tenant configurations have been loaded
+            into the cache (via discover_tenants() or get_tenant_config()).
+            If called before tenant discovery, it will raise TenantNotFoundError.
+        """
+        # Check cache only - no async API calls
+        for config in self._tenant_configs.values():
+            if config.issuer == issuer:
+                return config
+
+        # Not in cache
+        log.warning("tenant_not_in_cache_sync", issuer=issuer)
+        raise TenantNotFoundError(f"No tenant found for issuer: {issuer} (cache only)")
 
     # ==================== Authentication Flows ====================
 
