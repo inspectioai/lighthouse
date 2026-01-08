@@ -12,6 +12,7 @@ import structlog
 from botocore.exceptions import ClientError
 
 from lighthouse.base import IdentityProvider
+from lighthouse.templates import get_invitation_email_template
 from lighthouse.exceptions import (
     IdentityProviderError,
     InvalidCredentialsError,
@@ -174,12 +175,8 @@ class CognitoIdentityProvider(IdentityProvider):
                 AdminCreateUserConfig={
                     "AllowAdminCreateUserOnly": True,
                     "InviteMessageTemplate": {
-                        "EmailSubject": "Welcome to Inspectio",
-                        "EmailMessage": (
-                            "You have been invited to Inspectio. "
-                            "Your username is {username} and temporary password is {####}. "
-                            "Please login and change your password."
-                        ),
+                        "EmailSubject": "Welcome to Inspectio.ai",
+                        "EmailMessage": get_invitation_email_template(),
                     },
                 },
             )
