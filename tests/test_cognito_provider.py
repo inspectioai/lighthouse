@@ -308,28 +308,25 @@ async def test_delete_user(mock_cognito, region):
 @pytest.mark.asyncio
 async def test_discover_tenants(mock_cognito, region):
     """Test discovering tenants from Cognito pools."""
-    provider = CognitoIdentityProvider(region=region, tenant_pool_prefix="inspectio-")
+    provider = CognitoIdentityProvider(region=region)
 
-    # Create pools with the tenant prefix
-    await provider.create_pool(pool_name="inspectio-acme-12345678")
-    await provider.create_pool(pool_name="inspectio-globex-87654321")
-    # Create a pool without the prefix (should be ignored)
-    await provider.create_pool(pool_name="other-pool")
+    # Create pools (pool name is the tenant ID)
+    await provider.create_pool(pool_name="acme-12345678")
+    await provider.create_pool(pool_name="globex-87654321")
 
     tenants = await provider.discover_tenants()
 
     assert len(tenants) == 2
     assert "acme-12345678" in tenants
     assert "globex-87654321" in tenants
-    assert "other-pool" not in tenants
 
 
 @pytest.mark.asyncio
 async def test_discover_tenants_returns_tenant_config(mock_cognito, region):
     """Test that discovered tenants have proper TenantConfig."""
-    provider = CognitoIdentityProvider(region=region, tenant_pool_prefix="inspectio-")
+    provider = CognitoIdentityProvider(region=region)
 
-    await provider.create_pool(pool_name="inspectio-acme-12345678")
+    await provider.create_pool(pool_name="acme-12345678")
 
     tenants = await provider.discover_tenants()
 
@@ -346,9 +343,9 @@ async def test_discover_tenants_returns_tenant_config(mock_cognito, region):
 @pytest.mark.asyncio
 async def test_get_tenant_config(mock_cognito, region):
     """Test getting tenant config by ID."""
-    provider = CognitoIdentityProvider(region=region, tenant_pool_prefix="inspectio-")
+    provider = CognitoIdentityProvider(region=region)
 
-    await provider.create_pool(pool_name="inspectio-acme-12345678")
+    await provider.create_pool(pool_name="acme-12345678")
 
     config = await provider.get_tenant_config("acme-12345678")
 
@@ -360,7 +357,7 @@ async def test_get_tenant_config(mock_cognito, region):
 @pytest.mark.asyncio
 async def test_get_tenant_config_not_found(mock_cognito, region):
     """Test getting non-existent tenant raises TenantNotFoundError."""
-    provider = CognitoIdentityProvider(region=region, tenant_pool_prefix="inspectio-")
+    provider = CognitoIdentityProvider(region=region)
 
     with pytest.raises(TenantNotFoundError) as exc:
         await provider.get_tenant_config("nonexistent-tenant")
@@ -371,9 +368,9 @@ async def test_get_tenant_config_not_found(mock_cognito, region):
 @pytest.mark.asyncio
 async def test_get_tenant_config_uses_cache(mock_cognito, region):
     """Test that tenant config is cached after discovery."""
-    provider = CognitoIdentityProvider(region=region, tenant_pool_prefix="inspectio-")
+    provider = CognitoIdentityProvider(region=region)
 
-    await provider.create_pool(pool_name="inspectio-acme-12345678")
+    await provider.create_pool(pool_name="acme-12345678")
     await provider.discover_tenants()
 
     # Should use cache (no API call needed)
@@ -384,9 +381,9 @@ async def test_get_tenant_config_uses_cache(mock_cognito, region):
 @pytest.mark.asyncio
 async def test_get_tenant_config_by_issuer(mock_cognito, region):
     """Test getting tenant config by issuer URL."""
-    provider = CognitoIdentityProvider(region=region, tenant_pool_prefix="inspectio-")
+    provider = CognitoIdentityProvider(region=region)
 
-    pool = await provider.create_pool(pool_name="inspectio-acme-12345678")
+    pool = await provider.create_pool(pool_name="acme-12345678")
     issuer = f"https://cognito-idp.{region}.amazonaws.com/{pool.pool_id}"
 
     config = await provider.get_tenant_config_by_issuer(issuer)
@@ -398,7 +395,7 @@ async def test_get_tenant_config_by_issuer(mock_cognito, region):
 @pytest.mark.asyncio
 async def test_get_tenant_config_by_issuer_not_found(mock_cognito, region):
     """Test getting tenant by unknown issuer raises TenantNotFoundError."""
-    provider = CognitoIdentityProvider(region=region, tenant_pool_prefix="inspectio-")
+    provider = CognitoIdentityProvider(region=region)
 
     with pytest.raises(TenantNotFoundError):
         await provider.get_tenant_config_by_issuer(
@@ -412,10 +409,10 @@ async def test_get_tenant_config_by_issuer_not_found(mock_cognito, region):
 @pytest.mark.asyncio
 async def test_authenticate_returns_challenge_for_new_user(mock_cognito, region):
     """Test that new users get NEW_PASSWORD_REQUIRED challenge."""
-    provider = CognitoIdentityProvider(region=region, tenant_pool_prefix="inspectio-")
+    provider = CognitoIdentityProvider(region=region)
 
     # Create pool and user
-    await provider.create_pool(pool_name="inspectio-acme-12345678")
+    await provider.create_pool(pool_name="acme-12345678")
     invite = await provider.invite_user(
         pool_id=(await provider.get_tenant_config("acme-12345678")).pool_id,
         email="user@example.com",
@@ -439,9 +436,9 @@ async def test_authenticate_returns_challenge_for_new_user(mock_cognito, region)
 @pytest.mark.asyncio
 async def test_authenticate_invalid_credentials(mock_cognito, region):
     """Test authentication with invalid credentials raises InvalidCredentialsError."""
-    provider = CognitoIdentityProvider(region=region, tenant_pool_prefix="inspectio-")
+    provider = CognitoIdentityProvider(region=region)
 
-    await provider.create_pool(pool_name="inspectio-acme-12345678")
+    await provider.create_pool(pool_name="acme-12345678")
 
     # Try to authenticate with wrong password
     try:
@@ -457,9 +454,9 @@ async def test_authenticate_invalid_credentials(mock_cognito, region):
 @pytest.mark.asyncio
 async def test_refresh_tokens_invalid_token(mock_cognito, region):
     """Test refresh with invalid token raises SessionExpiredError."""
-    provider = CognitoIdentityProvider(region=region, tenant_pool_prefix="inspectio-")
+    provider = CognitoIdentityProvider(region=region)
 
-    await provider.create_pool(pool_name="inspectio-acme-12345678")
+    await provider.create_pool(pool_name="acme-12345678")
 
     try:
         with pytest.raises(SessionExpiredError):
@@ -472,10 +469,10 @@ async def test_refresh_tokens_invalid_token(mock_cognito, region):
 @pytest.mark.asyncio
 async def test_initiate_password_reset(mock_cognito, region):
     """Test initiating password reset flow."""
-    provider = CognitoIdentityProvider(region=region, tenant_pool_prefix="inspectio-")
+    provider = CognitoIdentityProvider(region=region)
 
     # Create pool and user
-    await provider.create_pool(pool_name="inspectio-acme-12345678")
+    await provider.create_pool(pool_name="acme-12345678")
     config = await provider.get_tenant_config("acme-12345678")
     await provider.invite_user(
         pool_id=config.pool_id,
@@ -495,9 +492,9 @@ async def test_initiate_password_reset(mock_cognito, region):
 @pytest.mark.asyncio
 async def test_initiate_password_reset_nonexistent_user(mock_cognito, region):
     """Test password reset for non-existent user returns generic message."""
-    provider = CognitoIdentityProvider(region=region, tenant_pool_prefix="inspectio-")
+    provider = CognitoIdentityProvider(region=region)
 
-    await provider.create_pool(pool_name="inspectio-acme-12345678")
+    await provider.create_pool(pool_name="acme-12345678")
 
     try:
         # Should not reveal if user exists
@@ -511,15 +508,6 @@ async def test_initiate_password_reset_nonexistent_user(mock_cognito, region):
 
 
 # ==================== Constructor Tests ====================
-
-
-def test_provider_with_custom_prefix(mock_cognito, region):
-    """Test provider with custom tenant pool prefix."""
-    provider = CognitoIdentityProvider(
-        region=region,
-        tenant_pool_prefix="myapp-",
-    )
-    assert provider.tenant_pool_prefix == "myapp-"
 
 
 def test_provider_with_endpoint_url(mock_cognito, region):

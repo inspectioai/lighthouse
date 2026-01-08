@@ -45,6 +45,7 @@ from lighthouse.models import (
     UserStatus,
 )
 from lighthouse.providers.cognito import CognitoIdentityProvider
+from lighthouse.providers.mock import MockIdentityProvider, MockVerifier
 
 __version__ = "0.2.0"
 
@@ -88,4 +89,6 @@ __all__ = [
     # Providers
     "CognitoIdentityProvider",
     "CognitoVerifier",
+    "MockIdentityProvider",
+    "MockVerifier",
 ]
