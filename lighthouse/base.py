@@ -38,6 +38,16 @@ class IdentityProvider(ABC):
         - OktaIdentityProvider: Okta (future)
     """
 
+    # ==================== Lifecycle ====================
+
+    async def init_async(self) -> None:
+        """Async initialization hook.
+
+        Override this method to perform async initialization tasks
+        like tenant discovery. Default implementation is a no-op.
+        """
+        pass
+
     # ==================== Pool Operations ====================
 
     @abstractmethod

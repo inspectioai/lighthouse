@@ -52,18 +52,15 @@ class CognitoIdentityProvider(IdentityProvider):
 
     Args:
         region: AWS region for Cognito
-        tenant_pool_prefix: Prefix used to identify tenant pools (e.g., "inspectio-")
         endpoint_url: Custom endpoint URL for LocalStack or other AWS-compatible services
     """
 
     def __init__(
         self,
         region: str,
-        tenant_pool_prefix: str = "inspectio-",
         endpoint_url: Optional[str] = None,
     ):
         self.region = region
-        self.tenant_pool_prefix = tenant_pool_prefix
         self._endpoint_url = endpoint_url
 
         # Create client with optional custom endpoint
@@ -585,15 +582,10 @@ class CognitoIdentityProvider(IdentityProvider):
     def _extract_tenant_id(self, pool_name: str) -> Optional[str]:
         """Extract tenant ID from pool name.
 
-        Pool naming convention: {prefix}{tenant_id}
-        Example: inspectio-acme-e3ef8d7f -> acme-e3ef8d7f
-
-        Returns everything after the prefix as the tenant ID.
+        The pool name IS the tenant_id (no prefix).
+        Returns the pool name lowercased as the tenant ID.
         """
-        if not pool_name.startswith(self.tenant_pool_prefix):
-            return None
-        tenant_id = pool_name[len(self.tenant_pool_prefix) :]
-        return tenant_id.lower() if tenant_id else None
+        return pool_name.lower() if pool_name else None
 
     def _find_app_client(self, pool_id: str) -> Optional[str]:
         """Find the first app client for a user pool."""
@@ -625,7 +617,7 @@ class CognitoIdentityProvider(IdentityProvider):
 
     async def discover_tenants(self) -> dict[str, TenantConfig]:
         """Discover all tenant configurations from Cognito."""
-        log.info("discovering_tenants", region=self.region, prefix=self.tenant_pool_prefix)
+        log.info("discovering_tenants", region=self.region)
 
         try:
             tenant_configs: dict[str, TenantConfig] = {}
