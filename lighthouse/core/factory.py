@@ -3,7 +3,6 @@
 from abc import ABC, abstractmethod
 
 from lighthouse.core.identity_provider import IdentityProvider
-from lighthouse.core.tenant_resolver import TenantConfigResolver
 from lighthouse.core.token_verifier import TokenVerifier
 
 
@@ -31,25 +30,6 @@ class LighthouseFactory(ABC):
         - CognitoFactory: AWS Cognito implementation
         - MockFactory: Mock implementation for testing
     """
-
-    @abstractmethod
-    def _create_tenant_resolver(self) -> TenantConfigResolver:
-        """Create or return cached tenant resolver.
-
-        Internal method that creates the lightweight tenant resolver used for
-        wiring together the IdentityProvider and TokenVerifier. This is an
-        implementation detail - users should use create_identity_provider()
-        and create_token_verifier() instead.
-
-        Returns:
-            TenantConfigResolver: A provider-specific resolver for tenant
-                configuration lookup.
-
-        Note:
-            Implementations should cache the resolver to ensure consistent
-            tenant configuration across provider and verifier instances.
-        """
-        pass
 
     @abstractmethod
     def create_identity_provider(self) -> IdentityProvider:
