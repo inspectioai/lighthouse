@@ -4,6 +4,8 @@ import os
 import pytest
 from moto import mock_aws
 
+from lighthouse import CognitoFactory
+
 
 @pytest.fixture
 def aws_credentials():
@@ -26,3 +28,9 @@ def mock_cognito(aws_credentials):
 def region():
     """AWS region for tests."""
     return "us-east-1"
+
+
+@pytest.fixture
+def cognito_factory(mock_cognito, region):
+    """Create a CognitoFactory for tests."""
+    return CognitoFactory(region=region)

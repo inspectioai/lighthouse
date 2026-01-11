@@ -11,10 +11,11 @@ Features:
 - Multi-tenant support with tenant discovery
 """
 
-from lighthouse.cognito import CognitoIdentityProvider, CognitoVerifier
+from lighthouse.cognito import CognitoIdentityProvider, CognitoTenantResolver, CognitoVerifier
 from lighthouse.cognito.factory import CognitoFactory
 from lighthouse.core.factory import LighthouseFactory, create_factory
 from lighthouse.core.identity_provider import IdentityProvider
+from lighthouse.core.tenant_resolver import TenantConfigResolver
 from lighthouse.core.token_verifier import TokenVerifier
 from lighthouse.exceptions import (
     AuthenticationError,
@@ -35,7 +36,7 @@ from lighthouse.exceptions import (
     UserNotConfirmedError,
     UserNotFoundError,
 )
-from lighthouse.mock import MockIdentityProvider, MockVerifier
+from lighthouse.mock import MockIdentityProvider, MockTenantResolver, MockVerifier
 from lighthouse.mock.factory import MockFactory
 from lighthouse.models import (
     AuthChallenge,
@@ -55,6 +56,7 @@ __version__ = "0.3.0"
 __all__ = [
     # Core interfaces
     "IdentityProvider",
+    "TenantConfigResolver",
     "TokenVerifier",
     # Factory (recommended entry point)
     "create_factory",
@@ -96,7 +98,9 @@ __all__ = [
     "TenantNotFoundError",
     # Providers
     "CognitoIdentityProvider",
+    "CognitoTenantResolver",
     "CognitoVerifier",
     "MockIdentityProvider",
+    "MockTenantResolver",
     "MockVerifier",
 ]

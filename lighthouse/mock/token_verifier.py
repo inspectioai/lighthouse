@@ -7,20 +7,52 @@ import base64
 import binascii
 import json
 import time
-from typing import Dict, Tuple
+from typing import Dict, Tuple, TYPE_CHECKING, Union
 
 from lighthouse.core.token_verifier import TokenVerifier
 from lighthouse.models import TenantConfig, TokenClaims
+
+if TYPE_CHECKING:
+    from lighthouse.core.tenant_resolver import TenantConfigResolver
 
 
 class MockVerifier(TokenVerifier):
     """Mock token verifier that validates mock JWT tokens.
 
     Implements lighthouse's TokenVerifier interface.
+    Can accept either a TenantConfigResolver or a dict of TenantConfigs for
+    backwards compatibility.
     """
 
-    def __init__(self, tenant_configs: Dict[str, TenantConfig]):
-        self._tenant_configs = tenant_configs
+    def __init__(
+        self,
+        tenant_source: Union["TenantConfigResolver", Dict[str, TenantConfig]],
+    ):
+        """Initialize MockVerifier.
+
+        Args:
+            tenant_source: Either a TenantConfigResolver or a dict mapping
+                tenant_id to TenantConfig for backwards compatibility.
+        """
+        self._tenant_source = tenant_source
+        self._is_resolver = hasattr(tenant_source, "get_tenant_config_by_issuer_sync")
+
+    def _get_tenant_config(self, tenant_id: str) -> TenantConfig | None:
+        """Get tenant config by ID from source."""
+        if self._is_resolver:
+            try:
+                # Use resolver - tenants are indexed by tenant_id
+                # For mock tokens, we get tenant directly by ID from the resolver's internal dict
+                from lighthouse.mock.tenant_resolver import MockTenantResolver
+                if isinstance(self._tenant_source, MockTenantResolver):
+                    if tenant_id in self._tenant_source._tenants:
+                        return self._tenant_source._tenants[tenant_id]
+                return None
+            except Exception:
+                return None
+        else:
+            # Dict of tenant configs
+            return self._tenant_source.get(tenant_id)
 
     def verify(self, token: str) -> Tuple[str, TokenClaims]:
         """
@@ -35,7 +67,11 @@ class MockVerifier(TokenVerifier):
             claims = json.loads(decoded)
 
             tenant_id = claims.get("tenant")
-            if not tenant_id or tenant_id not in self._tenant_configs:
+            if not tenant_id:
+                raise ValueError("Token missing tenant claim")
+
+            config = self._get_tenant_config(tenant_id)
+            if config is None:
                 raise ValueError(f"Unknown tenant: {tenant_id}")
 
             # Check expiration
