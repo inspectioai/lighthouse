@@ -40,9 +40,7 @@ class CognitoFactory(LighthouseFactory):
 
         Token verification only (lightweight - no IdentityProvider needed):
             >>> factory = CognitoFactory(region="us-east-1")
-            >>> resolver = factory.create_tenant_resolver()
             >>> verifier = factory.create_token_verifier(token_use="access")
-            >>> await resolver.discover_tenants()
             >>> tenant_id, claims = verifier.verify(access_token)
 
         Using with LocalStack for local testing:
@@ -71,22 +69,16 @@ class CognitoFactory(LighthouseFactory):
         self._resolver: Optional[TenantConfigResolver] = None
         self._provider: Optional[IdentityProvider] = None
 
-    def create_tenant_resolver(self) -> TenantConfigResolver:
+    def _create_tenant_resolver(self) -> TenantConfigResolver:
         """Create or return cached Cognito tenant resolver.
 
-        Creates a lightweight CognitoTenantResolver that only handles tenant
-        discovery and lookup. This is the minimal component needed for token
-        verification - it doesn't include user management or authentication.
+        Internal method that creates a lightweight CognitoTenantResolver for
+        tenant discovery and lookup. This is used by create_identity_provider()
+        and create_token_verifier() - users should not call this directly.
 
         Returns:
             TenantConfigResolver: A CognitoTenantResolver instance configured
                 for the specified AWS region.
-
-        Examples:
-            >>> factory = CognitoFactory(region="us-east-1")
-            >>> resolver = factory.create_tenant_resolver()
-            >>> await resolver.discover_tenants()
-            >>> config = resolver.get_tenant_config_by_issuer_sync(issuer)
 
         Note:
             The resolver is cached and shared between verifier and provider.
@@ -124,7 +116,7 @@ class CognitoFactory(LighthouseFactory):
             from lighthouse.cognito.identity_provider import CognitoIdentityProvider
 
             # Create provider with shared resolver
-            resolver = self.create_tenant_resolver()
+            resolver = self._create_tenant_resolver()
             self._provider = CognitoIdentityProvider(
                 region=self.region,
                 endpoint_url=self.endpoint_url,
@@ -149,9 +141,7 @@ class CognitoFactory(LighthouseFactory):
         Examples:
             Token verification only (no IdentityProvider created):
                 >>> factory = CognitoFactory(region="us-east-1")
-                >>> resolver = factory.create_tenant_resolver()
                 >>> verifier = factory.create_token_verifier(token_use="access")
-                >>> await resolver.discover_tenants()
                 >>> tenant_id, claims = verifier.verify(access_token)
 
             Verify ID tokens to get custom attributes:
@@ -169,7 +159,7 @@ class CognitoFactory(LighthouseFactory):
         from lighthouse.cognito.token_verifier import CognitoVerifier
 
         # Use lightweight resolver instead of full provider
-        resolver = self.create_tenant_resolver()
+        resolver = self._create_tenant_resolver()
 
         # Create verifier with resolver's tenant resolution
         return CognitoVerifier(

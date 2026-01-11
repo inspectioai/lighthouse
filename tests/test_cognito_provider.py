@@ -523,18 +523,22 @@ def test_factory_caches_provider(cognito_factory):
     assert provider1 is provider2
 
 
-def test_factory_creates_resolver(cognito_factory):
-    """Test that factory creates tenant resolver."""
-    resolver = cognito_factory.create_tenant_resolver()
-    assert resolver is not None
+def test_factory_shares_resolver_between_provider_and_verifier(cognito_factory):
+    """Test that factory shares resolver between provider and verifier.
 
-
-def test_factory_shares_resolver(cognito_factory):
-    """Test that factory shares resolver between provider and verifier."""
-    resolver = cognito_factory.create_tenant_resolver()
+    The resolver is an internal implementation detail (private method),
+    so we verify sharing through the cached _resolver attribute.
+    """
+    # Creating provider should create resolver internally
     provider = cognito_factory.create_identity_provider()
-    # Provider should use the same resolver
-    assert provider._tenant_resolver is resolver
+    resolver_after_provider = cognito_factory._resolver
+
+    # Provider should use this resolver
+    assert provider._tenant_resolver is resolver_after_provider
+
+    # Creating verifier should reuse same resolver (not create new one)
+    cognito_factory.create_token_verifier()
+    assert cognito_factory._resolver is resolver_after_provider
 
 
 def test_factory_with_endpoint_url(mock_cognito, region):

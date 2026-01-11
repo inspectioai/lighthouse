@@ -327,8 +327,23 @@ def test_factory_creates_verifier_without_provider():
         # Provider should still be None (not created)
         assert factory._provider is None
 
-        # But resolver should exist (verifier needs it)
+        # Resolver is internal (private) but should exist for verifier
         assert factory._resolver is not None
 
         # Verifier should be ready to use
         assert verifier is not None
+
+
+def test_resolver_is_not_public_api():
+    """Test that resolver is not exposed as public API on the factory."""
+    from lighthouse import CognitoFactory
+    from unittest.mock import patch
+
+    with patch("boto3.client"):
+        factory = CognitoFactory(region="us-east-1")
+
+        # create_tenant_resolver should not exist (private implementation detail)
+        assert not hasattr(factory, "create_tenant_resolver")
+
+        # _create_tenant_resolver exists but is private (underscore prefix)
+        assert hasattr(factory, "_create_tenant_resolver")

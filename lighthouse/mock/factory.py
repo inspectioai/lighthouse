@@ -32,7 +32,6 @@ class MockFactory(LighthouseFactory):
 
         Token verification only (no IdentityProvider created):
             >>> factory = MockFactory()
-            >>> resolver = factory.create_tenant_resolver()
             >>> verifier = factory.create_token_verifier()
             >>> # Tenants already pre-loaded in mock
             >>> tenant_id, claims = verifier.verify(mock_token)
@@ -66,19 +65,15 @@ class MockFactory(LighthouseFactory):
         self._resolver: Optional[TenantConfigResolver] = None
         self._provider: Optional[IdentityProvider] = None
 
-    def create_tenant_resolver(self) -> TenantConfigResolver:
+    def _create_tenant_resolver(self) -> TenantConfigResolver:
         """Create or return cached mock tenant resolver.
 
-        Creates a MockTenantResolver with pre-configured test tenants.
-        The resolver is cached and shared with the identity provider.
+        Internal method that creates a MockTenantResolver with pre-configured
+        test tenants. This is used by create_identity_provider() and
+        create_token_verifier() - users should not call this directly.
 
         Returns:
             TenantConfigResolver: A MockTenantResolver instance with test tenants.
-
-        Examples:
-            >>> factory = MockFactory()
-            >>> resolver = factory.create_tenant_resolver()
-            >>> config = await resolver.get_tenant_config("inspectio")
         """
         if self._resolver is None:
             from lighthouse.mock.tenant_resolver import MockTenantResolver
@@ -109,7 +104,7 @@ class MockFactory(LighthouseFactory):
         if self._provider is None:
             from lighthouse.mock.identity_provider import MockIdentityProvider
 
-            resolver = self.create_tenant_resolver()
+            resolver = self._create_tenant_resolver()
             self._provider = MockIdentityProvider(tenant_resolver=resolver)
         return self._provider
 
@@ -141,6 +136,6 @@ class MockFactory(LighthouseFactory):
         """
         from lighthouse.mock.token_verifier import MockVerifier
 
-        resolver = self.create_tenant_resolver()
+        resolver = self._create_tenant_resolver()
         # MockVerifier needs access to tenant configs
         return MockVerifier(resolver)
