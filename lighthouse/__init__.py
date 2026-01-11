@@ -36,7 +36,7 @@ from lighthouse.exceptions import (
     UserNotConfirmedError,
     UserNotFoundError,
 )
-from lighthouse.mock import MockIdentityProvider, MockTenantResolver, MockVerifier
+from lighthouse.mock import MockIdentityProvider, MockVerifier
 from lighthouse.mock.factory import MockFactory
 from lighthouse.models import (
     AuthChallenge,
@@ -101,6 +101,5 @@ __all__ = [
     "CognitoTenantResolver",
     "CognitoVerifier",
     "MockIdentityProvider",
-    "MockTenantResolver",
     "MockVerifier",
 ]

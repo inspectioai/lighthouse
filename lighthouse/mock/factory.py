@@ -1,19 +1,56 @@
 """Factory for mock/testing components."""
 
-from typing import Optional
+from typing import Dict, Optional
 
 from lighthouse.core.factory import LighthouseFactory
 from lighthouse.core.identity_provider import IdentityProvider
-from lighthouse.core.tenant_resolver import TenantConfigResolver
 from lighthouse.core.token_verifier import TokenVerifier
+from lighthouse.models import TenantConfig
+
+
+# Default test tenants
+def _create_default_tenants() -> Dict[str, TenantConfig]:
+    """Create default test tenants."""
+    return {
+        "inspectio": TenantConfig(
+            tenant_id="inspectio",
+            issuer="http://localhost:8000/mock/inspectio",
+            jwks_url="http://localhost:8000/mock/inspectio/.well-known/jwks.json",
+            audience="mock-inspectio-client",
+            pool_id="mock-pool-inspectio",
+            client_id="mock-inspectio-client",
+            region="mock",
+            status="active",
+        ),
+        "demo": TenantConfig(
+            tenant_id="demo",
+            issuer="http://localhost:8000/mock/demo",
+            jwks_url="http://localhost:8000/mock/demo/.well-known/jwks.json",
+            audience="mock-demo-client",
+            pool_id="mock-pool-demo",
+            client_id="mock-demo-client",
+            region="mock",
+            status="active",
+        ),
+        "test": TenantConfig(
+            tenant_id="test",
+            issuer="http://localhost:8000/mock/test",
+            jwks_url="http://localhost:8000/mock/test/.well-known/jwks.json",
+            audience="mock-test-client",
+            pool_id="mock-pool-test",
+            client_id="mock-test-client",
+            region="mock",
+            status="active",
+        ),
+    }
 
 
 class MockFactory(LighthouseFactory):
     """Factory for mock/testing components.
 
-    Creates MockIdentityProvider, MockTenantResolver, and MockVerifier instances
-    for testing and local development. The mock implementations use in-memory
-    storage and don't require AWS credentials or network access.
+    Creates MockIdentityProvider and MockVerifier instances for testing and
+    local development. The mock implementations use in-memory storage and
+    don't require AWS credentials or network access.
 
     The mock provider comes pre-configured with test tenants:
         - "inspectio": Test tenant with sample users
@@ -57,35 +94,19 @@ class MockFactory(LighthouseFactory):
     See Also:
         - create_factory(): Use create_factory("mock") to create this factory
         - MockIdentityProvider: The provider implementation
-        - MockTenantResolver: The resolver implementation
         - MockVerifier: The verifier implementation
     """
 
-    def __init__(self):
-        self._resolver: Optional[TenantConfigResolver] = None
+    def __init__(self) -> None:
+        # Shared tenant storage - both provider and verifier use this
+        self._tenants: Dict[str, TenantConfig] = _create_default_tenants()
         self._provider: Optional[IdentityProvider] = None
-
-    def _create_tenant_resolver(self) -> TenantConfigResolver:
-        """Create or return cached mock tenant resolver.
-
-        Internal method that creates a MockTenantResolver with pre-configured
-        test tenants. This is used by create_identity_provider() and
-        create_token_verifier() - users should not call this directly.
-
-        Returns:
-            TenantConfigResolver: A MockTenantResolver instance with test tenants.
-        """
-        if self._resolver is None:
-            from lighthouse.mock.tenant_resolver import MockTenantResolver
-
-            self._resolver = MockTenantResolver()
-        return self._resolver
 
     def create_identity_provider(self) -> IdentityProvider:
         """Create or return cached mock identity provider.
 
         Creates a MockIdentityProvider with pre-configured test tenants and
-        in-memory storage. The provider uses the shared MockTenantResolver.
+        in-memory storage.
 
         Returns:
             IdentityProvider: A MockIdentityProvider instance with test tenants
@@ -99,20 +120,19 @@ class MockFactory(LighthouseFactory):
 
         Note:
             The provider is cached to maintain state across multiple calls and
-            to ensure verifiers use the same provider instance.
+            to ensure verifiers use the same tenant state.
         """
         if self._provider is None:
             from lighthouse.mock.identity_provider import MockIdentityProvider
 
-            resolver = self._create_tenant_resolver()
-            self._provider = MockIdentityProvider(tenant_resolver=resolver)
+            self._provider = MockIdentityProvider(tenants=self._tenants)
         return self._provider
 
     def create_token_verifier(self, token_use: str = "access") -> TokenVerifier:
         """Create mock token verifier.
 
         Creates a MockVerifier that validates mock tokens (base64-encoded JSON)
-        using the MockTenantResolver for tenant lookup.
+        using the shared tenant dict for tenant lookup.
 
         Args:
             token_use: Type of token to verify - "access" or "id".
@@ -129,13 +149,11 @@ class MockFactory(LighthouseFactory):
             >>> tenant_id, claims = verifier.verify(mock_token)
 
         Note:
-            - Uses lightweight MockTenantResolver, not full MockIdentityProvider
             - Mock verification doesn't perform cryptographic validation
             - Checks token expiration and tenant existence
             - Perfect for testing JWT verification logic without real tokens
         """
         from lighthouse.mock.token_verifier import MockVerifier
 
-        resolver = self._create_tenant_resolver()
-        # MockVerifier needs access to tenant configs
-        return MockVerifier(resolver)
+        # Pass shared tenant dict - verifier sees same tenants as provider
+        return MockVerifier(self._tenants)

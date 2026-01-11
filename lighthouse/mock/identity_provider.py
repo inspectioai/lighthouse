@@ -13,7 +13,6 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from lighthouse.core.identity_provider import IdentityProvider
-from lighthouse.core.tenant_resolver import TenantConfigResolver
 from lighthouse.exceptions import (
     InvalidCredentialsError,
     TenantNotFoundError,
@@ -30,7 +29,6 @@ from lighthouse.models import (
     TenantConfig,
     UserStatus,
 )
-from lighthouse.mock.token_verifier import MockVerifier
 
 # Mock confirmation code for development - intentionally simple
 MOCK_CONFIRMATION_CODE = "123456"
@@ -46,18 +44,16 @@ class MockIdentityProvider(IdentityProvider):
     Implements lighthouse's IdentityProvider interface (async methods).
 
     Args:
-        tenant_resolver: TenantConfigResolver for tenant discovery.
+        tenants: Shared dict of tenant configurations (from MockFactory).
 
     Note:
         Use MockFactory.create_identity_provider() instead of instantiating directly.
-        The factory ensures proper dependency injection and component sharing.
+        The factory ensures proper state sharing between provider and verifier.
     """
 
-    def __init__(
-        self,
-        tenant_resolver: TenantConfigResolver,
-    ) -> None:
-        self._tenant_resolver = tenant_resolver
+    def __init__(self, tenants: Dict[str, TenantConfig]) -> None:
+        # Shared tenant storage (reference from factory)
+        self._tenants = tenants
 
         # In-memory user store: {pool_id: {email: IdentityUser}}
         self._users: Dict[str, Dict[str, IdentityUser]] = {
@@ -100,8 +96,6 @@ class MockIdentityProvider(IdentityProvider):
             "mock-pool-test": {"admin@test.example.com": "admin123"},
         }
 
-        self._verifier: MockVerifier | None = None
-
     # ==================== Pool Operations ====================
 
     async def create_pool(
@@ -113,7 +107,7 @@ class MockIdentityProvider(IdentityProvider):
         pool_id = f"mock-pool-{pool_name}"
         client_id = f"mock-client-{pool_name}"
 
-        # Add tenant config to resolver
+        # Add tenant config to shared dict
         tenant_config = TenantConfig(
             tenant_id=pool_name,
             issuer=f"http://localhost:8000/mock/{pool_name}",
@@ -124,7 +118,7 @@ class MockIdentityProvider(IdentityProvider):
             region="mock",
             status="active",
         )
-        self._tenant_resolver.add_tenant(tenant_config)
+        self._tenants[pool_name] = tenant_config
 
         # Initialize user store
         self._users[pool_id] = {}
@@ -141,7 +135,8 @@ class MockIdentityProvider(IdentityProvider):
     async def delete_pool(self, pool_id: str) -> bool:
         """Delete a mock pool."""
         tenant_id = pool_id.replace("mock-pool-", "")
-        if self._tenant_resolver.remove_tenant(tenant_id):
+        if tenant_id in self._tenants:
+            del self._tenants[tenant_id]
             self._users.pop(pool_id, None)
             self._passwords.pop(pool_id, None)
             return True
@@ -150,8 +145,8 @@ class MockIdentityProvider(IdentityProvider):
     async def get_pool_info(self, pool_id: str) -> Optional[PoolInfo]:
         """Get pool information."""
         tenant_id = pool_id.replace("mock-pool-", "")
-        if tenant_id in self._tenant_resolver._tenants:
-            config = self._tenant_resolver._tenants[tenant_id]
+        if tenant_id in self._tenants:
+            config = self._tenants[tenant_id]
             return PoolInfo(
                 pool_id=pool_id,
                 pool_name=tenant_id,
@@ -339,23 +334,30 @@ class MockIdentityProvider(IdentityProvider):
         return user is not None and user.status == UserStatus.FORCE_CHANGE_PASSWORD
 
     # ==================== Tenant Discovery ====================
-    # Delegates to TenantConfigResolver
 
     async def discover_tenants(self) -> Dict[str, TenantConfig]:
-        """Return all mock tenants. Delegates to TenantConfigResolver."""
-        return await self._tenant_resolver.discover_tenants()
+        """Return all mock tenants."""
+        return self._tenants.copy()
 
     async def get_tenant_config(self, tenant_id: str) -> TenantConfig:
-        """Get tenant config by ID. Delegates to TenantConfigResolver."""
-        return await self._tenant_resolver.get_tenant_config(tenant_id)
+        """Get tenant config by ID."""
+        if tenant_id not in self._tenants:
+            raise TenantNotFoundError(tenant_id)
+        return self._tenants[tenant_id]
 
     async def get_tenant_config_by_issuer(self, issuer: str) -> TenantConfig:
-        """Get tenant config by issuer URL. Delegates to TenantConfigResolver."""
-        return await self._tenant_resolver.get_tenant_config_by_issuer(issuer)
+        """Get tenant config by issuer URL."""
+        for config in self._tenants.values():
+            if config.issuer == issuer:
+                return config
+        raise TenantNotFoundError(f"No tenant found for issuer: {issuer}")
 
     def get_tenant_config_by_issuer_sync(self, issuer: str) -> TenantConfig:
-        """Synchronous version. Delegates to TenantConfigResolver."""
-        return self._tenant_resolver.get_tenant_config_by_issuer_sync(issuer)
+        """Synchronous version of get_tenant_config_by_issuer."""
+        for config in self._tenants.values():
+            if config.issuer == issuer:
+                return config
+        raise TenantNotFoundError(f"No tenant found for issuer: {issuer}")
 
     # ==================== Authentication Flows ====================
 
@@ -366,10 +368,10 @@ class MockIdentityProvider(IdentityProvider):
         password: str,
     ) -> AuthResult | AuthChallenge:
         """Authenticate user."""
-        if tenant_id not in self._tenant_resolver._tenants:
+        if tenant_id not in self._tenants:
             raise TenantNotFoundError(tenant_id)
 
-        config = self._tenant_resolver._tenants[tenant_id]
+        config = self._tenants[tenant_id]
         pool_id = config.pool_id
 
         if pool_id not in self._users:
@@ -405,10 +407,10 @@ class MockIdentityProvider(IdentityProvider):
         challenge_responses: Dict[str, str],
     ) -> AuthResult | AuthChallenge:
         """Respond to auth challenge."""
-        if tenant_id not in self._tenant_resolver._tenants:
+        if tenant_id not in self._tenants:
             raise TenantNotFoundError(tenant_id)
 
-        config = self._tenant_resolver._tenants[tenant_id]
+        config = self._tenants[tenant_id]
         pool_id = config.pool_id
         user = self._users[pool_id].get(username)
 
@@ -441,11 +443,11 @@ class MockIdentityProvider(IdentityProvider):
         refresh_token: str,
     ) -> AuthResult:
         """Refresh tokens."""
-        if tenant_id not in self._tenant_resolver._tenants:
+        if tenant_id not in self._tenants:
             raise TenantNotFoundError(tenant_id)
 
         # Just return new tokens for mock
-        config = self._tenant_resolver._tenants[tenant_id]
+        config = self._tenants[tenant_id]
         pool_id = config.pool_id
 
         # Find any user for this tenant to generate tokens
@@ -475,10 +477,10 @@ class MockIdentityProvider(IdentityProvider):
         new_password: str,
     ) -> bool:
         """Confirm password reset."""
-        if tenant_id not in self._tenant_resolver._tenants:
+        if tenant_id not in self._tenants:
             raise TenantNotFoundError(tenant_id)
 
-        config = self._tenant_resolver._tenants[tenant_id]
+        config = self._tenants[tenant_id]
         pool_id = config.pool_id
 
         if pool_id in self._passwords and username in self._passwords[pool_id]:
@@ -486,31 +488,6 @@ class MockIdentityProvider(IdentityProvider):
             return True
 
         return False
-
-    # ==================== Sync methods for backwards compatibility ====================
-
-    def get_tenant_config_sync(self, tenant_id: str) -> TenantConfig:
-        """Synchronous version of get_tenant_config for backwards compatibility."""
-        if tenant_id not in self._tenant_resolver._tenants:
-            raise ValueError(f"Tenant not found: {tenant_id}")
-        return self._tenant_resolver._tenants[tenant_id]
-
-    def get_tenant_config_by_issuer_sync(self, issuer: str) -> TenantConfig:
-        """Synchronous version of get_tenant_config_by_issuer."""
-        for config in self._tenant_resolver._tenants.values():
-            if config.issuer == issuer:
-                return config
-        raise ValueError(f"Tenant not found for issuer: {issuer}")
-
-    def discover_tenants_sync(self) -> Dict[str, TenantConfig]:
-        """Synchronous version of discover_tenants."""
-        return self._tenant_resolver._tenants.copy()
-
-    def create_verifier(self, token_use: str = "access") -> MockVerifier:
-        """Create mock token verifier."""
-        if self._verifier is None:
-            self._verifier = MockVerifier(self._tenant_resolver)
-        return self._verifier
 
     # ==================== Helper Methods ====================
 
