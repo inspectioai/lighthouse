@@ -4,7 +4,7 @@ import pytest
 from lighthouse import (
     AuthChallenge,
     AuthResult,
-    CognitoIdentityProvider,
+    CognitoFactory,
     PoolConfig,
     TenantConfig,
     UserStatus,
@@ -19,9 +19,9 @@ from lighthouse.exceptions import (
 
 
 @pytest.mark.asyncio
-async def test_create_pool(mock_cognito, region):
+async def test_create_pool(cognito_factory):
     """Test creating a Cognito user pool."""
-    provider = CognitoIdentityProvider(region=region)
+    provider = cognito_factory.create_identity_provider()
 
     pool_info = await provider.create_pool(
         pool_name="test-pool",
@@ -31,17 +31,17 @@ async def test_create_pool(mock_cognito, region):
     assert pool_info.pool_id
     assert pool_info.pool_name == "test-pool"
     assert pool_info.client_id
-    assert pool_info.region == region
+    assert pool_info.region == "us-east-1"
 
 
 @pytest.mark.asyncio
-async def test_create_pool_duplicate_raises_error(mock_cognito, region):
+async def test_create_pool_duplicate_raises_error(cognito_factory):
     """Test creating duplicate pool raises PoolExistsError.
 
     Note: moto may not enforce pool name uniqueness. In real Cognito,
     creating a pool with the same name raises ResourceExistsException.
     """
-    provider = CognitoIdentityProvider(region=region)
+    provider = cognito_factory.create_identity_provider()
 
     await provider.create_pool(pool_name="test-pool")
 
@@ -54,9 +54,9 @@ async def test_create_pool_duplicate_raises_error(mock_cognito, region):
 
 
 @pytest.mark.asyncio
-async def test_get_pool_info(mock_cognito, region):
+async def test_get_pool_info(cognito_factory):
     """Test getting pool information."""
-    provider = CognitoIdentityProvider(region=region)
+    provider = cognito_factory.create_identity_provider()
     pool = await provider.create_pool(pool_name="test-pool")
 
     pool_info = await provider.get_pool_info(pool.pool_id)
@@ -67,9 +67,9 @@ async def test_get_pool_info(mock_cognito, region):
 
 
 @pytest.mark.asyncio
-async def test_get_pool_info_not_found(mock_cognito, region):
+async def test_get_pool_info_not_found(cognito_factory):
     """Test getting non-existent pool returns None."""
-    provider = CognitoIdentityProvider(region=region)
+    provider = cognito_factory.create_identity_provider()
 
     pool_info = await provider.get_pool_info("nonexistent-pool")
 
@@ -77,9 +77,9 @@ async def test_get_pool_info_not_found(mock_cognito, region):
 
 
 @pytest.mark.asyncio
-async def test_delete_pool(mock_cognito, region):
+async def test_delete_pool(cognito_factory):
     """Test deleting a pool."""
-    provider = CognitoIdentityProvider(region=region)
+    provider = cognito_factory.create_identity_provider()
     pool = await provider.create_pool(pool_name="test-pool")
 
     result = await provider.delete_pool(pool.pool_id)
@@ -92,9 +92,9 @@ async def test_delete_pool(mock_cognito, region):
 
 
 @pytest.mark.asyncio
-async def test_delete_pool_not_found(mock_cognito, region):
+async def test_delete_pool_not_found(cognito_factory):
     """Test deleting non-existent pool returns False."""
-    provider = CognitoIdentityProvider(region=region)
+    provider = cognito_factory.create_identity_provider()
 
     result = await provider.delete_pool("nonexistent-pool")
 
@@ -102,9 +102,9 @@ async def test_delete_pool_not_found(mock_cognito, region):
 
 
 @pytest.mark.asyncio
-async def test_invite_user(mock_cognito, region):
+async def test_invite_user(cognito_factory):
     """Test inviting a user to a pool."""
-    provider = CognitoIdentityProvider(region=region)
+    provider = cognito_factory.create_identity_provider()
     pool = await provider.create_pool(pool_name="test-pool")
 
     result = await provider.invite_user(
@@ -123,9 +123,9 @@ async def test_invite_user(mock_cognito, region):
 
 
 @pytest.mark.asyncio
-async def test_invite_user_duplicate_raises_error(mock_cognito, region):
+async def test_invite_user_duplicate_raises_error(cognito_factory):
     """Test inviting duplicate user raises UserExistsError."""
-    provider = CognitoIdentityProvider(region=region)
+    provider = cognito_factory.create_identity_provider()
     pool = await provider.create_pool(pool_name="test-pool")
 
     await provider.invite_user(
@@ -147,9 +147,9 @@ async def test_invite_user_duplicate_raises_error(mock_cognito, region):
 
 
 @pytest.mark.asyncio
-async def test_get_user_by_email(mock_cognito, region):
+async def test_get_user_by_email(cognito_factory):
     """Test getting a user by email."""
-    provider = CognitoIdentityProvider(region=region)
+    provider = cognito_factory.create_identity_provider()
     pool = await provider.create_pool(pool_name="test-pool")
 
     invite_result = await provider.invite_user(
@@ -169,9 +169,9 @@ async def test_get_user_by_email(mock_cognito, region):
 
 
 @pytest.mark.asyncio
-async def test_get_user_by_email_not_found(mock_cognito, region):
+async def test_get_user_by_email_not_found(cognito_factory):
     """Test getting non-existent user by email returns None."""
-    provider = CognitoIdentityProvider(region=region)
+    provider = cognito_factory.create_identity_provider()
     pool = await provider.create_pool(pool_name="test-pool")
 
     user = await provider.get_user_by_email(pool.pool_id, "nonexistent@example.com")
@@ -180,9 +180,9 @@ async def test_get_user_by_email_not_found(mock_cognito, region):
 
 
 @pytest.mark.asyncio
-async def test_get_user(mock_cognito, region):
+async def test_get_user(cognito_factory):
     """Test getting a user by ID."""
-    provider = CognitoIdentityProvider(region=region)
+    provider = cognito_factory.create_identity_provider()
     pool = await provider.create_pool(pool_name="test-pool")
 
     invite_result = await provider.invite_user(
@@ -200,9 +200,9 @@ async def test_get_user(mock_cognito, region):
 
 
 @pytest.mark.asyncio
-async def test_list_users(mock_cognito, region):
+async def test_list_users(cognito_factory):
     """Test listing users in a pool."""
-    provider = CognitoIdentityProvider(region=region)
+    provider = cognito_factory.create_identity_provider()
     pool = await provider.create_pool(pool_name="test-pool")
 
     # Create multiple users
@@ -218,9 +218,9 @@ async def test_list_users(mock_cognito, region):
 
 
 @pytest.mark.asyncio
-async def test_update_user_role(mock_cognito, region):
+async def test_update_user_role(cognito_factory):
     """Test updating a user's role."""
-    provider = CognitoIdentityProvider(region=region)
+    provider = cognito_factory.create_identity_provider()
     pool = await provider.create_pool(pool_name="test-pool")
 
     invite_result = await provider.invite_user(
@@ -239,9 +239,9 @@ async def test_update_user_role(mock_cognito, region):
 
 
 @pytest.mark.asyncio
-async def test_update_user_display_name(mock_cognito, region):
+async def test_update_user_display_name(cognito_factory):
     """Test updating a user's display name."""
-    provider = CognitoIdentityProvider(region=region)
+    provider = cognito_factory.create_identity_provider()
     pool = await provider.create_pool(pool_name="test-pool")
 
     invite_result = await provider.invite_user(
@@ -260,9 +260,9 @@ async def test_update_user_display_name(mock_cognito, region):
 
 
 @pytest.mark.asyncio
-async def test_disable_and_enable_user(mock_cognito, region):
+async def test_disable_and_enable_user(cognito_factory):
     """Test disabling and enabling a user."""
-    provider = CognitoIdentityProvider(region=region)
+    provider = cognito_factory.create_identity_provider()
     pool = await provider.create_pool(pool_name="test-pool")
 
     invite_result = await provider.invite_user(
@@ -282,9 +282,9 @@ async def test_disable_and_enable_user(mock_cognito, region):
 
 
 @pytest.mark.asyncio
-async def test_delete_user(mock_cognito, region):
+async def test_delete_user(cognito_factory):
     """Test deleting a user."""
-    provider = CognitoIdentityProvider(region=region)
+    provider = cognito_factory.create_identity_provider()
     pool = await provider.create_pool(pool_name="test-pool")
 
     invite_result = await provider.invite_user(
@@ -306,9 +306,9 @@ async def test_delete_user(mock_cognito, region):
 
 
 @pytest.mark.asyncio
-async def test_discover_tenants(mock_cognito, region):
+async def test_discover_tenants(cognito_factory):
     """Test discovering tenants from Cognito pools."""
-    provider = CognitoIdentityProvider(region=region)
+    provider = cognito_factory.create_identity_provider()
 
     # Create pools (pool name is the tenant ID)
     await provider.create_pool(pool_name="acme-12345678")
@@ -322,9 +322,9 @@ async def test_discover_tenants(mock_cognito, region):
 
 
 @pytest.mark.asyncio
-async def test_discover_tenants_returns_tenant_config(mock_cognito, region):
+async def test_discover_tenants_returns_tenant_config(cognito_factory):
     """Test that discovered tenants have proper TenantConfig."""
-    provider = CognitoIdentityProvider(region=region)
+    provider = cognito_factory.create_identity_provider()
 
     await provider.create_pool(pool_name="acme-12345678")
 
@@ -335,15 +335,15 @@ async def test_discover_tenants_returns_tenant_config(mock_cognito, region):
     assert config.tenant_id == "acme-12345678"
     assert config.pool_id  # Should have a pool ID
     assert config.client_id  # Should have a client ID
-    assert config.region == region
+    assert config.region == "us-east-1"
     assert "cognito-idp" in config.issuer
     assert "jwks.json" in config.jwks_url
 
 
 @pytest.mark.asyncio
-async def test_get_tenant_config(mock_cognito, region):
+async def test_get_tenant_config(cognito_factory):
     """Test getting tenant config by ID."""
-    provider = CognitoIdentityProvider(region=region)
+    provider = cognito_factory.create_identity_provider()
 
     await provider.create_pool(pool_name="acme-12345678")
 
@@ -355,9 +355,9 @@ async def test_get_tenant_config(mock_cognito, region):
 
 
 @pytest.mark.asyncio
-async def test_get_tenant_config_not_found(mock_cognito, region):
+async def test_get_tenant_config_not_found(cognito_factory):
     """Test getting non-existent tenant raises TenantNotFoundError."""
-    provider = CognitoIdentityProvider(region=region)
+    provider = cognito_factory.create_identity_provider()
 
     with pytest.raises(TenantNotFoundError) as exc:
         await provider.get_tenant_config("nonexistent-tenant")
@@ -366,9 +366,9 @@ async def test_get_tenant_config_not_found(mock_cognito, region):
 
 
 @pytest.mark.asyncio
-async def test_get_tenant_config_uses_cache(mock_cognito, region):
+async def test_get_tenant_config_uses_cache(cognito_factory):
     """Test that tenant config is cached after discovery."""
-    provider = CognitoIdentityProvider(region=region)
+    provider = cognito_factory.create_identity_provider()
 
     await provider.create_pool(pool_name="acme-12345678")
     await provider.discover_tenants()
@@ -379,12 +379,12 @@ async def test_get_tenant_config_uses_cache(mock_cognito, region):
 
 
 @pytest.mark.asyncio
-async def test_get_tenant_config_by_issuer(mock_cognito, region):
+async def test_get_tenant_config_by_issuer(cognito_factory):
     """Test getting tenant config by issuer URL."""
-    provider = CognitoIdentityProvider(region=region)
+    provider = cognito_factory.create_identity_provider()
 
     pool = await provider.create_pool(pool_name="acme-12345678")
-    issuer = f"https://cognito-idp.{region}.amazonaws.com/{pool.pool_id}"
+    issuer = f"https://cognito-idp.us-east-1.amazonaws.com/{pool.pool_id}"
 
     config = await provider.get_tenant_config_by_issuer(issuer)
 
@@ -393,13 +393,13 @@ async def test_get_tenant_config_by_issuer(mock_cognito, region):
 
 
 @pytest.mark.asyncio
-async def test_get_tenant_config_by_issuer_not_found(mock_cognito, region):
+async def test_get_tenant_config_by_issuer_not_found(cognito_factory):
     """Test getting tenant by unknown issuer raises TenantNotFoundError."""
-    provider = CognitoIdentityProvider(region=region)
+    provider = cognito_factory.create_identity_provider()
 
     with pytest.raises(TenantNotFoundError):
         await provider.get_tenant_config_by_issuer(
-            f"https://cognito-idp.{region}.amazonaws.com/unknown-pool"
+            "https://cognito-idp.us-east-1.amazonaws.com/unknown-pool"
         )
 
 
@@ -407,9 +407,9 @@ async def test_get_tenant_config_by_issuer_not_found(mock_cognito, region):
 
 
 @pytest.mark.asyncio
-async def test_authenticate_returns_challenge_for_new_user(mock_cognito, region):
+async def test_authenticate_returns_challenge_for_new_user(cognito_factory):
     """Test that new users get NEW_PASSWORD_REQUIRED challenge."""
-    provider = CognitoIdentityProvider(region=region)
+    provider = cognito_factory.create_identity_provider()
 
     # Create pool and user
     await provider.create_pool(pool_name="acme-12345678")
@@ -434,9 +434,9 @@ async def test_authenticate_returns_challenge_for_new_user(mock_cognito, region)
 
 
 @pytest.mark.asyncio
-async def test_authenticate_invalid_credentials(mock_cognito, region):
+async def test_authenticate_invalid_credentials(cognito_factory):
     """Test authentication with invalid credentials raises InvalidCredentialsError."""
-    provider = CognitoIdentityProvider(region=region)
+    provider = cognito_factory.create_identity_provider()
 
     await provider.create_pool(pool_name="acme-12345678")
 
@@ -452,9 +452,9 @@ async def test_authenticate_invalid_credentials(mock_cognito, region):
 
 
 @pytest.mark.asyncio
-async def test_refresh_tokens_invalid_token(mock_cognito, region):
+async def test_refresh_tokens_invalid_token(cognito_factory):
     """Test refresh with invalid token raises SessionExpiredError."""
-    provider = CognitoIdentityProvider(region=region)
+    provider = cognito_factory.create_identity_provider()
 
     await provider.create_pool(pool_name="acme-12345678")
 
@@ -467,9 +467,9 @@ async def test_refresh_tokens_invalid_token(mock_cognito, region):
 
 
 @pytest.mark.asyncio
-async def test_initiate_password_reset(mock_cognito, region):
+async def test_initiate_password_reset(cognito_factory):
     """Test initiating password reset flow."""
-    provider = CognitoIdentityProvider(region=region)
+    provider = cognito_factory.create_identity_provider()
 
     # Create pool and user
     await provider.create_pool(pool_name="acme-12345678")
@@ -490,9 +490,9 @@ async def test_initiate_password_reset(mock_cognito, region):
 
 
 @pytest.mark.asyncio
-async def test_initiate_password_reset_nonexistent_user(mock_cognito, region):
+async def test_initiate_password_reset_nonexistent_user(cognito_factory):
     """Test password reset for non-existent user returns generic message."""
-    provider = CognitoIdentityProvider(region=region)
+    provider = cognito_factory.create_identity_provider()
 
     await provider.create_pool(pool_name="acme-12345678")
 
@@ -507,13 +507,45 @@ async def test_initiate_password_reset_nonexistent_user(mock_cognito, region):
         pytest.skip("moto doesn't support Cognito password reset")
 
 
-# ==================== Constructor Tests ====================
+# ==================== Factory Tests ====================
 
 
-def test_provider_with_endpoint_url(mock_cognito, region):
-    """Test provider with custom endpoint URL (for LocalStack)."""
-    provider = CognitoIdentityProvider(
+def test_factory_creates_provider(cognito_factory):
+    """Test that factory creates identity provider."""
+    provider = cognito_factory.create_identity_provider()
+    assert provider is not None
+
+
+def test_factory_caches_provider(cognito_factory):
+    """Test that factory returns cached provider."""
+    provider1 = cognito_factory.create_identity_provider()
+    provider2 = cognito_factory.create_identity_provider()
+    assert provider1 is provider2
+
+
+def test_factory_shares_resolver_between_provider_and_verifier(cognito_factory):
+    """Test that factory shares resolver between provider and verifier.
+
+    The resolver is an internal implementation detail (private method),
+    so we verify sharing through the cached _resolver attribute.
+    """
+    # Creating provider should create resolver internally
+    provider = cognito_factory.create_identity_provider()
+    resolver_after_provider = cognito_factory._resolver
+
+    # Provider should use this resolver
+    assert provider._tenant_resolver is resolver_after_provider
+
+    # Creating verifier should reuse same resolver (not create new one)
+    cognito_factory.create_token_verifier()
+    assert cognito_factory._resolver is resolver_after_provider
+
+
+def test_factory_with_endpoint_url(mock_cognito, region):
+    """Test factory with custom endpoint URL (for LocalStack)."""
+    factory = CognitoFactory(
         region=region,
         endpoint_url="http://localhost:4566",
     )
+    provider = factory.create_identity_provider()
     assert provider._endpoint_url == "http://localhost:4566"

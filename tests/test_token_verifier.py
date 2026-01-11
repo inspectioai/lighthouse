@@ -7,8 +7,8 @@ import json
 
 import pytest
 
-from lighthouse.auth.base import TokenVerifier
-from lighthouse.auth.cognito import CognitoVerifier
+from lighthouse.core.token_verifier import TokenVerifier
+from lighthouse.cognito.token_verifier import CognitoVerifier
 from lighthouse.models import TenantConfig, TokenClaims
 from lighthouse.exceptions import InvalidTokenError, InvalidIssuerError
 
@@ -276,3 +276,74 @@ def test_cognito_verifier_implements_token_verifier():
     assert hasattr(verifier, "get_unverified_claims")
     assert callable(verifier.verify)
     assert callable(verifier.get_unverified_claims)
+
+
+# ==================== Decoupling Tests ====================
+
+
+def test_verifier_decoupled_from_identity_provider():
+    """Test that CognitoVerifier has NO dependency on IdentityProvider.
+
+    This is critical: services that only verify tokens should NOT need
+    to import or instantiate IdentityProvider.
+    """
+    import lighthouse.cognito.token_verifier as tv_module
+
+    # Check that token_verifier module does NOT import identity_provider
+    module_source = tv_module.__file__
+    with open(module_source) as f:
+        source = f.read()
+
+    assert "identity_provider" not in source, "token_verifier should not import identity_provider"
+    assert "IdentityProvider" not in source, "token_verifier should not reference IdentityProvider"
+
+    # Verify CognitoVerifier can be instantiated with just a callable
+    verifier = CognitoVerifier(
+        tenant_config_resolver=lambda issuer: TenantConfig(
+            tenant_id="test",
+            issuer=issuer,
+            jwks_url=f"{issuer}/.well-known/jwks.json",
+            audience="client",
+            pool_id="pool",
+            client_id="client",
+            region="us-east-1",
+        )
+    )
+    assert verifier is not None
+
+
+def test_factory_creates_verifier_without_provider():
+    """Test that factory can create verifier without creating provider."""
+    from lighthouse import CognitoFactory
+    from unittest.mock import patch
+
+    # Mock AWS to avoid real API calls
+    with patch("boto3.client"):
+        factory = CognitoFactory(region="us-east-1")
+
+        # Create verifier - should NOT create identity provider
+        verifier = factory.create_token_verifier()
+
+        # Provider should still be None (not created)
+        assert factory._provider is None
+
+        # Resolver is internal (private) but should exist for verifier
+        assert factory._resolver is not None
+
+        # Verifier should be ready to use
+        assert verifier is not None
+
+
+def test_resolver_is_not_public_api():
+    """Test that resolver is not exposed as public API on the factory."""
+    from lighthouse import CognitoFactory
+    from unittest.mock import patch
+
+    with patch("boto3.client"):
+        factory = CognitoFactory(region="us-east-1")
+
+        # create_tenant_resolver should not exist (private implementation detail)
+        assert not hasattr(factory, "create_tenant_resolver")
+
+        # _create_tenant_resolver exists but is private (underscore prefix)
+        assert hasattr(factory, "_create_tenant_resolver")

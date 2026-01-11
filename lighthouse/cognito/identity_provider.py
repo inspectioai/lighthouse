@@ -11,7 +11,8 @@ import boto3
 import structlog
 from botocore.exceptions import ClientError
 
-from lighthouse.base import IdentityProvider
+from lighthouse.core.identity_provider import IdentityProvider
+from lighthouse.core.tenant_resolver import TenantConfigResolver
 from lighthouse.templates import get_invitation_email_template
 from lighthouse.exceptions import (
     IdentityProviderError,
@@ -19,7 +20,6 @@ from lighthouse.exceptions import (
     InvalidPasswordError,
     PoolExistsError,
     SessionExpiredError,
-    TenantNotFoundError,
     TooManyRequestsError,
     UserExistsError,
     UserNotConfirmedError,
@@ -52,25 +52,29 @@ class CognitoIdentityProvider(IdentityProvider):
 
     Args:
         region: AWS region for Cognito
+        tenant_resolver: TenantConfigResolver for tenant discovery.
         endpoint_url: Custom endpoint URL for LocalStack or other AWS-compatible services
+
+    Note:
+        Use CognitoFactory.create_identity_provider() instead of instantiating directly.
+        The factory ensures proper dependency injection and component sharing.
     """
 
     def __init__(
         self,
         region: str,
+        tenant_resolver: TenantConfigResolver,
         endpoint_url: Optional[str] = None,
     ):
         self.region = region
         self._endpoint_url = endpoint_url
+        self._tenant_resolver = tenant_resolver
 
         # Create client with optional custom endpoint
         client_kwargs: dict[str, Any] = {"region_name": region}
         if endpoint_url:
             client_kwargs["endpoint_url"] = endpoint_url
         self._client = boto3.client("cognito-idp", **client_kwargs)
-
-        # Tenant configuration cache
-        self._tenant_configs: dict[str, TenantConfig] = {}
 
     def _generate_temp_password(self, length: int = 12) -> str:
         """Generate a secure temporary password meeting Cognito requirements."""
@@ -578,151 +582,36 @@ class CognitoIdentityProvider(IdentityProvider):
             return True
 
     # ==================== Tenant Discovery ====================
-
-    def _extract_tenant_id(self, pool_name: str) -> Optional[str]:
-        """Extract tenant ID from pool name.
-
-        The pool name IS the tenant_id (no prefix).
-        Returns the pool name lowercased as the tenant ID.
-        """
-        return pool_name.lower() if pool_name else None
-
-    def _find_app_client(self, pool_id: str) -> Optional[str]:
-        """Find the first app client for a user pool."""
-        try:
-            paginator = self._client.get_paginator("list_user_pool_clients")
-            for page in paginator.paginate(UserPoolId=pool_id, MaxResults=60):
-                for app_client in page.get("UserPoolClients", []):
-                    # Return first client that supports user password auth
-                    return app_client["ClientId"]
-        except ClientError:
-            pass
-        return None
-
-    def _create_tenant_config(
-        self, tenant_id: str, pool_id: str, pool_name: str, client_id: str
-    ) -> TenantConfig:
-        """Create a TenantConfig from pool details."""
-        issuer = f"https://cognito-idp.{self.region}.amazonaws.com/{pool_id}"
-        return TenantConfig(
-            tenant_id=tenant_id,
-            issuer=issuer,
-            jwks_url=f"{issuer}/.well-known/jwks.json",
-            audience=client_id,
-            pool_id=pool_id,
-            client_id=client_id,
-            region=self.region,
-            status="active",
-        )
+    # Delegates to TenantConfigResolver for all tenant discovery operations
 
     async def discover_tenants(self) -> dict[str, TenantConfig]:
-        """Discover all tenant configurations from Cognito."""
-        log.info("discovering_tenants", region=self.region)
+        """Discover all tenant configurations from Cognito.
 
-        try:
-            tenant_configs: dict[str, TenantConfig] = {}
-            paginator = self._client.get_paginator("list_user_pools")
-
-            for page in paginator.paginate(MaxResults=60):
-                for pool in page.get("UserPools", []):
-                    pool_name = pool["Name"]
-                    pool_id = pool["Id"]
-
-                    tenant_id = self._extract_tenant_id(pool_name)
-                    if not tenant_id:
-                        continue
-
-                    client_id = self._find_app_client(pool_id)
-                    if not client_id:
-                        log.warning("no_app_client_found", pool_id=pool_id, pool_name=pool_name)
-                        continue
-
-                    config = self._create_tenant_config(tenant_id, pool_id, pool_name, client_id)
-                    tenant_configs[tenant_id] = config
-
-            self._tenant_configs = tenant_configs
-            log.info("tenants_discovered", count=len(tenant_configs))
-            return tenant_configs
-
-        except ClientError as e:
-            log.error("tenant_discovery_failed", error=str(e))
-            raise IdentityProviderError(f"Failed to discover tenants: {e}", "discover_tenants")
+        Delegates to the TenantConfigResolver.
+        """
+        return await self._tenant_resolver.discover_tenants()
 
     async def get_tenant_config(self, tenant_id: str) -> TenantConfig:
-        """Get configuration for a specific tenant."""
-        # Check cache first
-        if tenant_id in self._tenant_configs:
-            return self._tenant_configs[tenant_id]
+        """Get configuration for a specific tenant.
 
-        # Not in cache - search Cognito
-        log.debug("tenant_cache_miss", tenant_id=tenant_id)
-
-        try:
-            paginator = self._client.get_paginator("list_user_pools")
-            for page in paginator.paginate(MaxResults=60):
-                for pool in page.get("UserPools", []):
-                    pool_name = pool["Name"]
-                    pool_id = pool["Id"]
-
-                    extracted_tenant = self._extract_tenant_id(pool_name)
-                    if extracted_tenant == tenant_id:
-                        client_id = self._find_app_client(pool_id)
-                        if client_id:
-                            config = self._create_tenant_config(
-                                tenant_id, pool_id, pool_name, client_id
-                            )
-                            self._tenant_configs[tenant_id] = config
-                            return config
-
-            raise TenantNotFoundError(tenant_id)
-
-        except TenantNotFoundError:
-            raise
-        except ClientError as e:
-            log.error("get_tenant_config_failed", tenant_id=tenant_id, error=str(e))
-            raise IdentityProviderError(f"Failed to get tenant config: {e}", "get_tenant_config")
+        Delegates to the TenantConfigResolver.
+        """
+        return await self._tenant_resolver.get_tenant_config(tenant_id)
 
     async def get_tenant_config_by_issuer(self, issuer: str) -> TenantConfig:
-        """Get tenant configuration by JWT issuer URL."""
-        # Check cache first
-        for config in self._tenant_configs.values():
-            if config.issuer == issuer:
-                return config
+        """Get tenant configuration by JWT issuer URL.
 
-        # Extract pool_id from issuer URL and search
-        # Issuer format: https://cognito-idp.{region}.amazonaws.com/{pool_id}
-        try:
-            pool_id = issuer.split("/")[-1]
-        except Exception:
-            raise TenantNotFoundError(f"Invalid issuer format: {issuer}")
+        Delegates to the TenantConfigResolver.
+        """
+        return await self._tenant_resolver.get_tenant_config_by_issuer(issuer)
 
-        log.debug("tenant_issuer_cache_miss", issuer=issuer)
+    def get_tenant_config_by_issuer_sync(self, issuer: str) -> TenantConfig:
+        """Synchronous version of get_tenant_config_by_issuer.
 
-        try:
-            paginator = self._client.get_paginator("list_user_pools")
-            for page in paginator.paginate(MaxResults=60):
-                for pool in page.get("UserPools", []):
-                    if pool["Id"] == pool_id:
-                        pool_name = pool["Name"]
-                        tenant_id = self._extract_tenant_id(pool_name)
-                        if tenant_id:
-                            client_id = self._find_app_client(pool_id)
-                            if client_id:
-                                config = self._create_tenant_config(
-                                    tenant_id, pool_id, pool_name, client_id
-                                )
-                                self._tenant_configs[tenant_id] = config
-                                return config
-
-            raise TenantNotFoundError(f"No tenant found for issuer: {issuer}")
-
-        except TenantNotFoundError:
-            raise
-        except ClientError as e:
-            log.error("get_tenant_by_issuer_failed", issuer=issuer, error=str(e))
-            raise IdentityProviderError(
-                f"Failed to get tenant by issuer: {e}", "get_tenant_config_by_issuer"
-            )
+        Used by CognitoVerifier for JWT validation which cannot be async.
+        Delegates to the TenantConfigResolver.
+        """
+        return self._tenant_resolver.get_tenant_config_by_issuer_sync(issuer)
 
     # ==================== Authentication Flows ====================
 

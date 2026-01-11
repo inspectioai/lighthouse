@@ -17,7 +17,7 @@ import jwt
 import structlog
 from jwt.algorithms import RSAAlgorithm
 
-from lighthouse.auth.base import TokenVerifier
+from lighthouse.core.token_verifier import TokenVerifier
 from lighthouse.exceptions import InvalidIssuerError, InvalidTokenError
 from lighthouse.models import TenantConfig, TokenClaims
 

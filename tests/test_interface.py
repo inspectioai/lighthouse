@@ -2,7 +2,7 @@
 
 import pytest
 from abc import ABC
-from lighthouse import IdentityProvider, CognitoIdentityProvider
+from lighthouse import IdentityProvider, CognitoFactory
 
 
 def test_identity_provider_is_abstract():
@@ -35,7 +35,7 @@ def test_identity_provider_has_required_methods():
         assert hasattr(IdentityProvider, method), f"IdentityProvider missing method: {method}"
 
 
-def test_cognito_provider_implements_interface():
+def test_cognito_provider_implements_interface(cognito_factory):
     """Test that CognitoIdentityProvider implements all required methods."""
     required_methods = [
         "create_pool",
@@ -53,14 +53,14 @@ def test_cognito_provider_implements_interface():
         "resend_invite",
     ]
 
-    provider = CognitoIdentityProvider(region="us-east-1")
+    provider = cognito_factory.create_identity_provider()
 
     for method in required_methods:
         assert hasattr(provider, method), f"CognitoIdentityProvider missing method: {method}"
         assert callable(getattr(provider, method)), f"CognitoIdentityProvider.{method} is not callable"
 
 
-def test_cognito_provider_is_identity_provider():
+def test_cognito_provider_is_identity_provider(cognito_factory):
     """Test that CognitoIdentityProvider is an IdentityProvider."""
-    provider = CognitoIdentityProvider(region="us-east-1")
+    provider = cognito_factory.create_identity_provider()
     assert isinstance(provider, IdentityProvider)

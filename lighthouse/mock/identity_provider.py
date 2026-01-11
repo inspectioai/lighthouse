@@ -4,17 +4,15 @@ Implements lighthouse's IdentityProvider interface for local testing.
 """
 
 import base64
-import binascii
 import json
 import secrets
 import string
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional
 
-from lighthouse.auth import TokenVerifier
-from lighthouse.base import IdentityProvider
+from lighthouse.core.identity_provider import IdentityProvider
 from lighthouse.exceptions import (
     InvalidCredentialsError,
     TenantNotFoundError,
@@ -29,73 +27,11 @@ from lighthouse.models import (
     PoolConfig,
     PoolInfo,
     TenantConfig,
-    TokenClaims,
     UserStatus,
 )
 
 # Mock confirmation code for development - intentionally simple
 MOCK_CONFIRMATION_CODE = "123456"
-
-
-class MockVerifier(TokenVerifier):
-    """Mock token verifier that validates mock JWT tokens.
-
-    Implements lighthouse's TokenVerifier interface.
-    """
-
-    def __init__(self, tenant_configs: Dict[str, TenantConfig]):
-        self._tenant_configs = tenant_configs
-
-    def verify(self, token: str) -> Tuple[str, TokenClaims]:
-        """
-        Verify a mock token and return (tenant_id, TokenClaims).
-
-        Mock tokens are base64-encoded JSON with format:
-        {"tenant": "demo", "sub": "user-123", "username": "admin", "exp": timestamp}
-        """
-        try:
-            # Decode the mock token
-            decoded = base64.b64decode(token).decode("utf-8")
-            claims = json.loads(decoded)
-
-            tenant_id = claims.get("tenant")
-            if not tenant_id or tenant_id not in self._tenant_configs:
-                raise ValueError(f"Unknown tenant: {tenant_id}")
-
-            # Check expiration
-            exp = claims.get("exp", 0)
-            if exp < time.time():
-                raise ValueError("Token expired")
-
-            return tenant_id, TokenClaims(
-                sub=claims.get("sub", ""),
-                email=claims.get("email"),
-                role=claims.get("role"),
-                tenant_id=tenant_id,
-                exp=claims.get("exp"),
-                iat=claims.get("iat"),
-                raw_claims=claims,
-            )
-
-        except (json.JSONDecodeError, binascii.Error) as e:
-            raise ValueError(f"Invalid mock token format: {e}")
-
-    def get_unverified_claims(self, token: str) -> TokenClaims:
-        """Extract claims from a token WITHOUT verifying."""
-        try:
-            decoded = base64.b64decode(token).decode("utf-8")
-            claims = json.loads(decoded)
-            return TokenClaims(
-                sub=claims.get("sub", ""),
-                email=claims.get("email"),
-                role=claims.get("role"),
-                tenant_id=claims.get("tenant"),
-                exp=claims.get("exp"),
-                iat=claims.get("iat"),
-                raw_claims=claims,
-            )
-        except (json.JSONDecodeError, binascii.Error) as e:
-            raise ValueError(f"Invalid mock token format: {e}")
 
 
 class MockIdentityProvider(IdentityProvider):
@@ -106,42 +42,18 @@ class MockIdentityProvider(IdentityProvider):
     Useful for local development and testing.
 
     Implements lighthouse's IdentityProvider interface (async methods).
+
+    Args:
+        tenants: Shared dict of tenant configurations (from MockFactory).
+
+    Note:
+        Use MockFactory.create_identity_provider() instead of instantiating directly.
+        The factory ensures proper state sharing between provider and verifier.
     """
 
-    def __init__(self) -> None:
-        # Pre-configured test tenants using lighthouse's TenantConfig format
-        self._tenants: Dict[str, TenantConfig] = {
-            "inspectio": TenantConfig(
-                tenant_id="inspectio",
-                issuer="http://localhost:8000/mock/inspectio",
-                jwks_url="http://localhost:8000/mock/inspectio/.well-known/jwks.json",
-                audience="mock-inspectio-client",
-                pool_id="mock-pool-inspectio",
-                client_id="mock-inspectio-client",
-                region="mock",
-                status="active",
-            ),
-            "demo": TenantConfig(
-                tenant_id="demo",
-                issuer="http://localhost:8000/mock/demo",
-                jwks_url="http://localhost:8000/mock/demo/.well-known/jwks.json",
-                audience="mock-demo-client",
-                pool_id="mock-pool-demo",
-                client_id="mock-demo-client",
-                region="mock",
-                status="active",
-            ),
-            "test": TenantConfig(
-                tenant_id="test",
-                issuer="http://localhost:8000/mock/test",
-                jwks_url="http://localhost:8000/mock/test/.well-known/jwks.json",
-                audience="mock-test-client",
-                pool_id="mock-pool-test",
-                client_id="mock-test-client",
-                region="mock",
-                status="active",
-            ),
-        }
+    def __init__(self, tenants: Dict[str, TenantConfig]) -> None:
+        # Shared tenant storage (reference from factory)
+        self._tenants = tenants
 
         # In-memory user store: {pool_id: {email: IdentityUser}}
         self._users: Dict[str, Dict[str, IdentityUser]] = {
@@ -184,8 +96,6 @@ class MockIdentityProvider(IdentityProvider):
             "mock-pool-test": {"admin@test.example.com": "admin123"},
         }
 
-        self._verifier: MockVerifier | None = None
-
     # ==================== Pool Operations ====================
 
     async def create_pool(
@@ -197,8 +107,8 @@ class MockIdentityProvider(IdentityProvider):
         pool_id = f"mock-pool-{pool_name}"
         client_id = f"mock-client-{pool_name}"
 
-        # Add tenant config
-        self._tenants[pool_name] = TenantConfig(
+        # Add tenant config to shared dict
+        tenant_config = TenantConfig(
             tenant_id=pool_name,
             issuer=f"http://localhost:8000/mock/{pool_name}",
             jwks_url=f"http://localhost:8000/mock/{pool_name}/.well-known/jwks.json",
@@ -208,6 +118,7 @@ class MockIdentityProvider(IdentityProvider):
             region="mock",
             status="active",
         )
+        self._tenants[pool_name] = tenant_config
 
         # Initialize user store
         self._users[pool_id] = {}
@@ -441,6 +352,13 @@ class MockIdentityProvider(IdentityProvider):
                 return config
         raise TenantNotFoundError(f"No tenant found for issuer: {issuer}")
 
+    def get_tenant_config_by_issuer_sync(self, issuer: str) -> TenantConfig:
+        """Synchronous version of get_tenant_config_by_issuer."""
+        for config in self._tenants.values():
+            if config.issuer == issuer:
+                return config
+        raise TenantNotFoundError(f"No tenant found for issuer: {issuer}")
+
     # ==================== Authentication Flows ====================
 
     async def authenticate(
@@ -570,31 +488,6 @@ class MockIdentityProvider(IdentityProvider):
             return True
 
         return False
-
-    # ==================== Sync methods for backwards compatibility ====================
-
-    def get_tenant_config_sync(self, tenant_id: str) -> TenantConfig:
-        """Synchronous version of get_tenant_config for backwards compatibility."""
-        if tenant_id not in self._tenants:
-            raise ValueError(f"Tenant not found: {tenant_id}")
-        return self._tenants[tenant_id]
-
-    def get_tenant_config_by_issuer_sync(self, issuer: str) -> TenantConfig:
-        """Synchronous version of get_tenant_config_by_issuer."""
-        for config in self._tenants.values():
-            if config.issuer == issuer:
-                return config
-        raise ValueError(f"Tenant not found for issuer: {issuer}")
-
-    def discover_tenants_sync(self) -> Dict[str, TenantConfig]:
-        """Synchronous version of discover_tenants."""
-        return self._tenants.copy()
-
-    def create_verifier(self, token_use: str = "access") -> MockVerifier:
-        """Create mock token verifier."""
-        if self._verifier is None:
-            self._verifier = MockVerifier(self._tenants)
-        return self._verifier
 
     # ==================== Helper Methods ====================
 
