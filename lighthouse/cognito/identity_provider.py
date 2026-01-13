@@ -40,6 +40,8 @@ log = structlog.get_logger()
 
 # Custom attribute for role
 ROLE_ATTRIBUTE = "custom:role"
+# Custom attribute for tenant_id (UUID)
+TENANT_ID_ATTRIBUTE = "custom:tenant_id"
 # Standard attribute for display name
 NAME_ATTRIBUTE = "name"
 
@@ -134,9 +136,18 @@ class CognitoIdentityProvider(IdentityProvider):
         self,
         pool_name: str,
         config: Optional[PoolConfig] = None,
+        tenant_id: Optional[str] = None,
     ) -> PoolInfo:
-        """Create a new Cognito user pool with app client."""
+        """Create a new Cognito user pool with app client.
+
+        Args:
+            pool_name: Name for the user pool (typically the tenant_id UUID)
+            config: Optional pool configuration
+            tenant_id: Tenant UUID (defaults to pool_name if not provided)
+        """
         config = config or PoolConfig()
+        # Default tenant_id to pool_name if not explicitly provided
+        tenant_id = tenant_id or pool_name
 
         try:
             # Create user pool
@@ -171,6 +182,16 @@ class CognitoIdentityProvider(IdentityProvider):
                             "MaxLength": "50",
                         },
                     },
+                    {
+                        "Name": "tenant_id",
+                        "AttributeDataType": "String",
+                        "Required": False,
+                        "Mutable": False,
+                        "StringAttributeConstraints": {
+                            "MinLength": "36",
+                            "MaxLength": "36",
+                        },
+                    },
                 ],
                 MfaConfiguration="OFF" if not config.mfa_enabled else "OPTIONAL",
                 AdminCreateUserConfig={
@@ -202,8 +223,9 @@ class CognitoIdentityProvider(IdentityProvider):
                     "sub",
                     NAME_ATTRIBUTE,
                     ROLE_ATTRIBUTE,
+                    TENANT_ID_ATTRIBUTE,
                 ],
-                WriteAttributes=["email", NAME_ATTRIBUTE, ROLE_ATTRIBUTE],
+                WriteAttributes=["email", NAME_ATTRIBUTE, ROLE_ATTRIBUTE, TENANT_ID_ATTRIBUTE],
             )
 
             client_id = client_response["UserPoolClient"]["ClientId"]
@@ -275,8 +297,18 @@ class CognitoIdentityProvider(IdentityProvider):
         role: str,
         display_name: Optional[str] = None,
         send_invite: bool = True,
+        tenant_id: Optional[str] = None,
     ) -> InviteResult:
-        """Invite a user to the Cognito pool."""
+        """Invite a user to the Cognito pool.
+
+        Args:
+            pool_id: Cognito user pool ID
+            email: User's email address
+            role: User's role (admin, editor, viewer)
+            display_name: Optional display name
+            send_invite: Whether to send email invitation
+            tenant_id: Tenant UUID to set as custom:tenant_id attribute
+        """
         temp_password = self._generate_temp_password()
 
         try:
@@ -288,6 +320,8 @@ class CognitoIdentityProvider(IdentityProvider):
             ]
             if display_name:
                 user_attributes.append({"Name": NAME_ATTRIBUTE, "Value": display_name})
+            if tenant_id:
+                user_attributes.append({"Name": TENANT_ID_ATTRIBUTE, "Value": tenant_id})
 
             # Build params - only include MessageAction if suppressing
             create_params: dict[str, Any] = {
