@@ -41,6 +41,7 @@ class DynamoDBTenantResolver(TenantConfigResolver):
         table_name: str,
         region: str,
         endpoint_url: Optional[str] = None,  # For LocalStack testing
+        enable_cache: bool = False,  # Default: caching disabled
     ):
         """Initialize DynamoDB tenant resolver.
 
@@ -48,9 +49,11 @@ class DynamoDBTenantResolver(TenantConfigResolver):
             table_name: Name of the DynamoDB table containing tenant data
             region: AWS region where the table is located
             endpoint_url: Optional endpoint URL for LocalStack/testing
+            enable_cache: Enable in-memory caching (default: False for always-fresh data)
         """
         self._table_name = table_name
         self._region = region
+        self._enable_cache = enable_cache
         self._dynamodb = boto3.client(
             'dynamodb',
             region_name=region,
@@ -59,7 +62,7 @@ class DynamoDBTenantResolver(TenantConfigResolver):
         self._cache: Dict[str, TenantConfig] = {}
         self._issuer_index: Dict[str, str] = {}
         self._pool_id_index: Dict[str, str] = {}
-        log.info("Initialized DynamoDB tenant resolver", table_name=table_name, region=region)
+        log.info("Initialized DynamoDB tenant resolver", table_name=table_name, region=region, cache_enabled=enable_cache)
 
     async def discover_tenants(self) -> Dict[str, TenantConfig]:
         """Scan DynamoDB table for all active tenants.
