@@ -215,24 +215,30 @@ class CognitoTenantResolver(TenantConfigResolver):
                 f"Failed to get tenant by issuer: {e}", "get_tenant_config_by_issuer"
             )
 
-    def get_tenant_config_by_issuer_sync(self, issuer: str) -> TenantConfig:
-        """Synchronous version of get_tenant_config_by_issuer.
+    def get_tenant_config_by_issuer_sync(self, tenant_id: str) -> TenantConfig:
+        """Synchronous version of get_tenant_config.
 
         Used by CognitoVerifier for JWT validation which cannot be async.
         This method only checks the cache and does not make API calls.
+
+        Args:
+            tenant_id: Tenant identifier from JWT custom:tenant_id claim
+
+        Returns:
+            TenantConfig for the tenant
+
+        Raises:
+            TenantNotFoundError: If tenant not in cache
         """
-        # Check index first (fastest)
-        if issuer in self._issuer_index:
-            tenant_id = self._issuer_index[issuer]
+        # Direct lookup by tenant_id (O(1))
+        if tenant_id in self._tenant_configs:
             return self._tenant_configs[tenant_id]
 
-        # Fallback: linear search through cache
-        for config in self._tenant_configs.values():
-            if config.issuer == issuer:
-                return config
-
-        log.warning("tenant_not_in_cache_sync", issuer=issuer)
-        raise TenantNotFoundError(f"No tenant found for issuer: {issuer} (cache only)")
+        log.warning("tenant_not_in_cache_sync", tenant_id=tenant_id)
+        raise TenantNotFoundError(
+            f"No tenant found for tenant_id: {tenant_id}. "
+            f"Ensure discover_tenants() was called at startup."
+        )
 
     async def get_tenant_config_by_pool_id(self, pool_id: str) -> TenantConfig:
         """Get tenant configuration by pool ID."""

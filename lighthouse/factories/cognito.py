@@ -28,6 +28,13 @@ class CognitoFactory(LighthouseFactory):
             standard AWS Cognito endpoints.
             Example: "http://localhost:4566" for LocalStack
 
+        tenant_resolver: Optional custom TenantConfigResolver implementation.
+            If provided, this resolver will be used instead of creating a
+            CognitoTenantResolver. This allows services to inject their own
+            tenant discovery strategy (e.g., DynamoDBTenantResolver for Harbor,
+            HarborTenantResolver for Faro).
+            If not provided, creates a default CognitoTenantResolver.
+
     Attributes:
         region: The AWS region configured for this factory
         endpoint_url: The custom endpoint URL, if configured
@@ -63,10 +70,15 @@ class CognitoFactory(LighthouseFactory):
         - CognitoVerifier: The verifier implementation
     """
 
-    def __init__(self, region: str, endpoint_url: Optional[str] = None):
+    def __init__(
+        self,
+        region: str,
+        endpoint_url: Optional[str] = None,
+        tenant_resolver: Optional[TenantConfigResolver] = None,
+    ):
         self.region = region
         self.endpoint_url = endpoint_url
-        self._resolver: Optional[TenantConfigResolver] = None
+        self._resolver: Optional[TenantConfigResolver] = tenant_resolver
         self._provider: Optional[IdentityProvider] = None
 
     def _create_tenant_resolver(self) -> TenantConfigResolver:
@@ -85,7 +97,7 @@ class CognitoFactory(LighthouseFactory):
             This ensures consistent tenant configuration across all components.
         """
         if self._resolver is None:
-            from lighthouse.cognito.tenant_resolver import CognitoTenantResolver
+            from lighthouse.tenant_resolvers.cognito import CognitoTenantResolver
 
             self._resolver = CognitoTenantResolver(
                 region=self.region, endpoint_url=self.endpoint_url
@@ -113,7 +125,7 @@ class CognitoFactory(LighthouseFactory):
             The provider shares the TenantConfigResolver with verifiers.
         """
         if self._provider is None:
-            from lighthouse.cognito.identity_provider import CognitoIdentityProvider
+            from lighthouse.identity_providers.cognito import CognitoIdentityProvider
 
             # Create provider with shared resolver
             resolver = self._create_tenant_resolver()
@@ -156,15 +168,15 @@ class CognitoFactory(LighthouseFactory):
             - Validates token signature, expiration, issuer, and audience
             - Requires tenant configurations to be loaded via resolver.discover_tenants()
         """
-        from lighthouse.cognito.token_verifier import CognitoVerifier
+        from lighthouse.token_verifiers.cognito import CognitoVerifier
 
         # Use lightweight resolver instead of full provider
         resolver = self._create_tenant_resolver()
 
         # Create verifier with resolver's tenant resolution
         return CognitoVerifier(
-            tenant_config_resolver=lambda issuer: resolver.get_tenant_config_by_issuer_sync(
-                issuer
+            tenant_config_resolver=lambda tenant_id: resolver.get_tenant_config_by_issuer_sync(
+                tenant_id
             ),
             token_use=token_use,
         )

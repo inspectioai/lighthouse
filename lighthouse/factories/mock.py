@@ -123,7 +123,7 @@ class MockFactory(LighthouseFactory):
             to ensure verifiers use the same tenant state.
         """
         if self._provider is None:
-            from lighthouse.mock.identity_provider import MockIdentityProvider
+            from lighthouse.identity_providers.mock import MockIdentityProvider
 
             self._provider = MockIdentityProvider(tenants=self._tenants)
         return self._provider
@@ -153,7 +153,7 @@ class MockFactory(LighthouseFactory):
             - Checks token expiration and tenant existence
             - Perfect for testing JWT verification logic without real tokens
         """
-        from lighthouse.mock.token_verifier import MockVerifier
+        from lighthouse.token_verifiers.mock import MockVerifier
 
         # Pass shared tenant dict - verifier sees same tenants as provider
         return MockVerifier(self._tenants)
