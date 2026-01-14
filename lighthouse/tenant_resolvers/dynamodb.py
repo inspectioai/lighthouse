@@ -162,12 +162,14 @@ class DynamoDBTenantResolver(TenantConfigResolver):
         Raises:
             TenantNotFoundError: If tenant not found in DynamoDB
         """
-        # Check cache first (fast path)
-        if tenant_id in self._cache:
+        # Check cache first (fast path) - only if caching enabled
+        if self._enable_cache and tenant_id in self._cache:
+            log.debug("Tenant found in cache", tenant_id=tenant_id)
             return self._cache[tenant_id]
 
-        # Cache miss - query DynamoDB directly by tenant_id (GetItem - O(1))
-        log.info("Tenant not in cache, querying DynamoDB", tenant_id=tenant_id)
+        # Cache miss or caching disabled - query DynamoDB directly by tenant_id (GetItem - O(1))
+        cache_status = "disabled" if not self._enable_cache else "miss"
+        log.info(f"Fetching from DynamoDB (cache {cache_status})", tenant_id=tenant_id)
 
         try:
             response = self._dynamodb.get_item(
@@ -209,12 +211,14 @@ class DynamoDBTenantResolver(TenantConfigResolver):
                 status="active"
             )
 
-            # Add to cache for future requests
-            self._cache[tenant_id] = config
-            self._issuer_index[issuer] = tenant_id
-            self._pool_id_index[pool_id] = tenant_id
-
-            log.info("Tenant fetched from DynamoDB and cached", tenant_id=tenant_id)
+            # Add to cache for future requests (only if caching enabled)
+            if self._enable_cache:
+                self._cache[tenant_id] = config
+                self._issuer_index[issuer] = tenant_id
+                self._pool_id_index[pool_id] = tenant_id
+                log.info("Tenant fetched from DynamoDB and cached", tenant_id=tenant_id)
+            else:
+                log.info("Tenant fetched from DynamoDB (caching disabled)", tenant_id=tenant_id)
 
             return config
 

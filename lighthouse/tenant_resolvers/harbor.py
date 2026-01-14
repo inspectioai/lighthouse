@@ -189,12 +189,14 @@ class HarborTenantResolver(TenantConfigResolver):
         Raises:
             TenantNotFoundError: If tenant not found in Harbor
         """
-        # Check cache first (fast path)
-        if tenant_id in self._cache:
+        # Check cache first (fast path) - only if caching enabled
+        if self._enable_cache and tenant_id in self._cache:
+            log.debug("Tenant found in cache", tenant_id=tenant_id)
             return self._cache[tenant_id]
 
-        # Cache miss - fetch from Harbor API by tenant_id
-        log.info("Tenant not in cache, fetching from Harbor API", tenant_id=tenant_id)
+        # Cache miss or caching disabled - fetch from Harbor API by tenant_id
+        cache_status = "disabled" if not self._enable_cache else "miss"
+        log.info(f"Fetching from Harbor API (cache {cache_status})", tenant_id=tenant_id)
 
         try:
             # Fetch tenant by ID from Harbor
@@ -235,12 +237,14 @@ class HarborTenantResolver(TenantConfigResolver):
                 status="active"
             )
 
-            # Add to cache for future requests
-            self._cache[tenant_id] = config
-            self._issuer_index[issuer] = tenant_id
-            self._pool_id_index[pool_id] = tenant_id
-
-            log.info("Tenant fetched from Harbor API and cached", tenant_id=tenant_id)
+            # Add to cache for future requests (only if caching enabled)
+            if self._enable_cache:
+                self._cache[tenant_id] = config
+                self._issuer_index[issuer] = tenant_id
+                self._pool_id_index[pool_id] = tenant_id
+                log.info("Tenant fetched from Harbor API and cached", tenant_id=tenant_id)
+            else:
+                log.info("Tenant fetched from Harbor API (caching disabled)", tenant_id=tenant_id)
 
             return config
 
