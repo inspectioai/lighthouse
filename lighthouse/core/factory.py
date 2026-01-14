@@ -111,6 +111,11 @@ def create_factory(provider_type: str, **kwargs) -> LighthouseFactory:
                 endpoint_url (str, optional): Custom endpoint URL for testing with
                     LocalStack or other AWS-compatible services.
                     Example: "http://localhost:4566"
+                tenant_resolver (TenantConfigResolver, optional): Custom tenant resolver
+                    implementation. If provided, this resolver will be used instead of
+                    creating a CognitoTenantResolver. Use DynamoDBTenantResolver for
+                    services that own the DynamoDB table (e.g., Harbor) or
+                    HarborTenantResolver for external services (e.g., Faro).
 
             For provider_type="mock":
                 No additional arguments required.
@@ -154,7 +159,7 @@ def create_factory(provider_type: str, **kwargs) -> LighthouseFactory:
         provider for tenant resolution.
     """
     if provider_type == "cognito":
-        from lighthouse.cognito.factory import CognitoFactory
+        from lighthouse.factories.cognito import CognitoFactory
 
         # Validate required arguments for Cognito
         if "region" not in kwargs:
@@ -164,7 +169,7 @@ def create_factory(provider_type: str, **kwargs) -> LighthouseFactory:
             )
         return CognitoFactory(**kwargs)
     elif provider_type == "mock":
-        from lighthouse.mock.factory import MockFactory
+        from lighthouse.factories.mock import MockFactory
 
         # Mock provider doesn't accept any arguments
         if kwargs:

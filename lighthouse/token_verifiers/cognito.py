@@ -19,12 +19,10 @@ from jwt.algorithms import RSAAlgorithm
 
 from lighthouse.core.token_verifier import TokenVerifier
 from lighthouse.exceptions import InvalidIssuerError, InvalidTokenError
+from lighthouse.identity_providers.cognito import ROLE_ATTRIBUTE, TENANT_ID_ATTRIBUTE
 from lighthouse.models import TenantConfig, TokenClaims
 
 log = structlog.get_logger()
-
-# Custom attribute names in Cognito
-ROLE_ATTRIBUTE = "custom:role"
 
 
 class CognitoVerifier(TokenVerifier):
@@ -108,13 +106,13 @@ class CognitoVerifier(TokenVerifier):
 
         return RSAAlgorithm.from_jwk(json.dumps(jwk))
 
-    def _resolve_tenant(self, issuer: str) -> TenantConfig:
-        """Resolve tenant configuration from issuer URL."""
+    def _resolve_tenant(self, tenant_id: str) -> TenantConfig:
+        """Resolve tenant configuration from tenant_id."""
         try:
-            return self.tenant_config_resolver(issuer)
+            return self.tenant_config_resolver(tenant_id)
         except Exception as e:
-            log.warning("tenant_resolution_failed", issuer=issuer, error=str(e))
-            raise InvalidIssuerError(issuer)
+            log.warning("tenant_resolution_failed", tenant_id=tenant_id, error=str(e))
+            raise InvalidIssuerError(f"Unknown tenant: {tenant_id}")
 
     def verify(self, token: str) -> Tuple[str, TokenClaims]:
         """Verify a Cognito JWT token and return tenant ID and claims."""
@@ -125,7 +123,7 @@ class CognitoVerifier(TokenVerifier):
             if not kid:
                 raise InvalidTokenError("Token missing kid header")
 
-            # Decode claims without verification to get issuer
+            # Decode claims without verification to get tenant_id and issuer
             unverified = jwt.decode(
                 token,
                 options={"verify_signature": False, "verify_aud": False},
@@ -133,6 +131,12 @@ class CognitoVerifier(TokenVerifier):
             issuer = unverified.get("iss")
             if not issuer:
                 raise InvalidTokenError("Token missing iss claim")
+
+            # Extract tenant_id from custom attribute
+            tenant_id = unverified.get(TENANT_ID_ATTRIBUTE)
+            if not tenant_id:
+                log.warning("token_missing_tenant_id", has_custom_attrs=any(k.startswith("custom:") for k in unverified.keys()))
+                raise InvalidTokenError(f"Token missing {TENANT_ID_ATTRIBUTE} claim")
 
             # Validate token_use
             token_use = unverified.get("token_use")
@@ -146,8 +150,8 @@ class CognitoVerifier(TokenVerifier):
                     f"Invalid token_use: expected {self.token_use}, got {token_use}"
                 )
 
-            # Resolve tenant from issuer
-            tenant_config = self._resolve_tenant(issuer)
+            # Resolve tenant configuration by tenant_id
+            tenant_config = self._resolve_tenant(tenant_id)
 
             # Get signing key and verify
             key = self._get_signing_key(tenant_config.jwks_url, kid)

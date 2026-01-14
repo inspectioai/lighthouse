@@ -11,12 +11,25 @@ Features:
 - Multi-tenant support with tenant discovery
 """
 
-from lighthouse.cognito import CognitoIdentityProvider, CognitoTenantResolver, CognitoVerifier
-from lighthouse.cognito.factory import CognitoFactory
 from lighthouse.core.factory import LighthouseFactory, create_factory
 from lighthouse.core.identity_provider import IdentityProvider
 from lighthouse.core.tenant_resolver import TenantConfigResolver
 from lighthouse.core.token_verifier import TokenVerifier
+from lighthouse.factories import CognitoFactory, MockFactory
+from lighthouse.identity_providers import (
+    CognitoIdentityProvider,
+    MockIdentityProvider,
+    NAME_ATTRIBUTE,
+    ROLE_ATTRIBUTE,
+    TENANT_ID_ATTRIBUTE,
+)
+from lighthouse.tenant_resolvers import (
+    CognitoTenantResolver,
+    DynamoDBTenantResolver,
+    HarborTenantResolver,
+    MockTenantResolver,
+)
+from lighthouse.token_verifiers import CognitoVerifier, MockVerifier
 from lighthouse.exceptions import (
     AuthenticationError,
     IdentityProviderError,
@@ -36,8 +49,6 @@ from lighthouse.exceptions import (
     UserNotConfirmedError,
     UserNotFoundError,
 )
-from lighthouse.mock import MockIdentityProvider, MockVerifier
-from lighthouse.mock.factory import MockFactory
 from lighthouse.models import (
     AuthChallenge,
     AuthResult,
@@ -74,6 +85,10 @@ __all__ = [
     "TenantConfig",
     "TokenClaims",
     "UserStatus",
+    # Constants
+    "ROLE_ATTRIBUTE",
+    "TENANT_ID_ATTRIBUTE",
+    "NAME_ATTRIBUTE",
     # Exceptions - Base
     "LighthouseError",
     "IdentityProviderError",
@@ -96,10 +111,15 @@ __all__ = [
     "TokenExpiredError",
     # Exceptions - Tenant
     "TenantNotFoundError",
-    # Providers
+    # Identity Providers
     "CognitoIdentityProvider",
-    "CognitoTenantResolver",
-    "CognitoVerifier",
     "MockIdentityProvider",
+    # Token Verifiers
+    "CognitoVerifier",
     "MockVerifier",
+    # Tenant Resolvers
+    "CognitoTenantResolver",
+    "DynamoDBTenantResolver",
+    "HarborTenantResolver",
+    "MockTenantResolver",
 ]

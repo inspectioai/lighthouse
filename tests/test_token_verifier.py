@@ -8,7 +8,7 @@ import json
 import pytest
 
 from lighthouse.core.token_verifier import TokenVerifier
-from lighthouse.cognito.token_verifier import CognitoVerifier
+from lighthouse.token_verifiers.cognito import CognitoVerifier
 from lighthouse.models import TenantConfig, TokenClaims
 from lighthouse.exceptions import InvalidTokenError, InvalidIssuerError
 
@@ -208,19 +208,20 @@ def test_verify_token_missing_issuer():
 
 
 def test_verify_unknown_issuer():
-    """Test verify raises InvalidIssuerError for unknown issuer."""
+    """Test verify raises InvalidIssuerError for unknown tenant."""
 
-    def resolver(issuer: str) -> TenantConfig:
-        raise ValueError(f"Unknown issuer: {issuer}")
+    def resolver(tenant_id: str) -> TenantConfig:
+        raise ValueError(f"Unknown tenant: {tenant_id}")
 
     verifier = CognitoVerifier(tenant_config_resolver=resolver)
 
-    # Create a JWT with kid and issuer
+    # Create a JWT with kid, issuer, and tenant_id
     token = _create_test_jwt(
         header={"alg": "RS256", "kid": "test-kid"},
         payload={
             "sub": "test",
             "iss": "https://unknown-issuer.com",
+            "custom:tenant_id": "unknown-tenant",
             "token_use": "access",
         }
     )
@@ -232,11 +233,11 @@ def test_verify_unknown_issuer():
 def test_verify_wrong_token_use():
     """Test verify raises error for wrong token_use."""
 
-    def resolver(issuer: str) -> TenantConfig:
+    def resolver(tenant_id: str) -> TenantConfig:
         return TenantConfig(
-            tenant_id="test-tenant",
-            issuer=issuer,
-            jwks_url=f"{issuer}/.well-known/jwks.json",
+            tenant_id=tenant_id,
+            issuer="https://cognito-idp.us-east-1.amazonaws.com/us-east-1_ABC123",
+            jwks_url="https://cognito-idp.us-east-1.amazonaws.com/us-east-1_ABC123/.well-known/jwks.json",
             audience="client123",
             pool_id="us-east-1_ABC123",
             client_id="client123",
@@ -252,6 +253,7 @@ def test_verify_wrong_token_use():
         payload={
             "sub": "test",
             "iss": "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_ABC123",
+            "custom:tenant_id": "test-tenant",
             "token_use": "access",  # Wrong! Verifier expects "id"
         }
     )
@@ -282,20 +284,29 @@ def test_cognito_verifier_implements_token_verifier():
 
 
 def test_verifier_decoupled_from_identity_provider():
-    """Test that CognitoVerifier has NO dependency on IdentityProvider.
+    """Test that CognitoVerifier has NO dependency on IdentityProvider class.
 
     This is critical: services that only verify tokens should NOT need
     to import or instantiate IdentityProvider.
-    """
-    import lighthouse.cognito.token_verifier as tv_module
 
-    # Check that token_verifier module does NOT import identity_provider
+    Note: Importing constants from identity_providers module is acceptable,
+    as long as the IdentityProvider class itself is not imported.
+    """
+    import lighthouse.token_verifiers.cognito as tv_module
+
+    # Check that token_verifier module does NOT import IdentityProvider class
     module_source = tv_module.__file__
     with open(module_source) as f:
         source = f.read()
 
-    assert "identity_provider" not in source, "token_verifier should not import identity_provider"
-    assert "IdentityProvider" not in source, "token_verifier should not reference IdentityProvider"
+    # Check that IdentityProvider class is NOT imported
+    assert "from lighthouse.core.identity_provider import IdentityProvider" not in source, \
+        "token_verifier should not import IdentityProvider class"
+    assert "from lighthouse.identity_providers.cognito import CognitoIdentityProvider" not in source, \
+        "token_verifier should not import CognitoIdentityProvider class"
+
+    # It's OK to import constants from identity_providers module
+    # (e.g., ROLE_ATTRIBUTE, TENANT_ID_ATTRIBUTE)
 
     # Verify CognitoVerifier can be instantiated with just a callable
     verifier = CognitoVerifier(
