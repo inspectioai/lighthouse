@@ -40,6 +40,7 @@ class HarborTenantResolver(TenantConfigResolver):
         api_key: str,
         cache_ttl: int = 600,  # 10 minutes default
         timeout: float = 10.0,  # 10 seconds default
+        enable_cache: bool = False,  # Default: caching disabled
     ):
         """Initialize Harbor API tenant resolver.
 
@@ -48,11 +49,13 @@ class HarborTenantResolver(TenantConfigResolver):
             api_key: API key for service-to-service authentication
             cache_ttl: Cache time-to-live in seconds (default: 600)
             timeout: HTTP request timeout in seconds (default: 10.0)
+            enable_cache: Enable caching (default: False for always-fresh data)
         """
         self._harbor_url = harbor_url.rstrip('/')
         self._api_key = api_key
         self._cache_ttl = cache_ttl
         self._timeout = timeout
+        self._enable_cache = enable_cache
         self._cache: Dict[str, TenantConfig] = {}
         self._issuer_index: Dict[str, str] = {}
         self._pool_id_index: Dict[str, str] = {}
