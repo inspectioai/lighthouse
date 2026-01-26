@@ -198,7 +198,10 @@ class CognitoIdentityProvider(IdentityProvider):
                     "AllowAdminCreateUserOnly": True,
                     "InviteMessageTemplate": {
                         "EmailSubject": "Welcome to Inspectio.ai",
-                        "EmailMessage": get_invitation_email_template(),
+                        "EmailMessage": get_invitation_email_template(
+                            tenant_name=config.tenant_name,
+                            panorama_url=config.panorama_url,
+                        ),
                     },
                 },
             )
