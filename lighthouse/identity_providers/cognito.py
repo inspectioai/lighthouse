@@ -150,10 +150,10 @@ class CognitoIdentityProvider(IdentityProvider):
         tenant_id = tenant_id or pool_name
 
         try:
-            # Create user pool
-            pool_response = self._client.create_user_pool(
-                PoolName=pool_name,
-                Policies={
+            # Build create_user_pool parameters
+            create_params: dict[str, Any] = {
+                "PoolName": pool_name,
+                "Policies": {
                     "PasswordPolicy": {
                         "MinimumLength": config.minimum_length,
                         "RequireUppercase": config.require_uppercase,
@@ -162,10 +162,10 @@ class CognitoIdentityProvider(IdentityProvider):
                         "RequireSymbols": config.require_symbols,
                     }
                 },
-                AutoVerifiedAttributes=["email"] if config.auto_verify_email else [],
-                UsernameAttributes=["email"],
-                UsernameConfiguration={"CaseSensitive": False},
-                Schema=[
+                "AutoVerifiedAttributes": ["email"] if config.auto_verify_email else [],
+                "UsernameAttributes": ["email"],
+                "UsernameConfiguration": {"CaseSensitive": False},
+                "Schema": [
                     {
                         "Name": "email",
                         "AttributeDataType": "String",
@@ -193,8 +193,8 @@ class CognitoIdentityProvider(IdentityProvider):
                         },
                     },
                 ],
-                MfaConfiguration="OFF" if not config.mfa_enabled else "OPTIONAL",
-                AdminCreateUserConfig={
+                "MfaConfiguration": "OFF" if not config.mfa_enabled else "OPTIONAL",
+                "AdminCreateUserConfig": {
                     "AllowAdminCreateUserOnly": True,
                     "InviteMessageTemplate": {
                         "EmailSubject": "Welcome to Inspectio.ai",
@@ -204,8 +204,18 @@ class CognitoIdentityProvider(IdentityProvider):
                         ),
                     },
                 },
-            )
+            }
 
+            # Add email configuration if SES ARN is provided
+            if config.ses_from_arn:
+                create_params["EmailConfiguration"] = {
+                    "EmailSendingAccount": "DEVELOPER",
+                    "SourceArn": config.ses_from_arn,
+                    "From": "Inspectio.ai <no-reply@inspectio.ai>",
+                }
+
+            # Create user pool
+            pool_response = self._client.create_user_pool(**create_params)
             pool_id = pool_response["UserPool"]["Id"]
             log.info("cognito_pool_created", pool_id=pool_id, pool_name=pool_name)
 

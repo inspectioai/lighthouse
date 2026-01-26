@@ -44,6 +44,9 @@ class PoolConfig:
     tenant_name: str = "Inspectio.ai"
     panorama_url: str = "https://panorama.app.inspectio.ai"
 
+    # Email configuration (optional SES integration)
+    ses_from_arn: str | None = None  # ARN for verified SES identity (e.g., arn:aws:ses:region:account:identity/no-reply@inspectio.ai)
+
 
 @dataclass
 class PoolInfo:
