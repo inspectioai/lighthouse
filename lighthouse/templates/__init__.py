@@ -34,10 +34,18 @@ def get_invitation_email_template(
     Returns:
         Template content with placeholders replaced
     """
+    from urllib.parse import urlencode
+
     template = load_template("invitation_email")
+
+    # Add tenant name as query parameter to Panorama URL
+    separator = "&" if "?" in panorama_url else "?"
+    query_params = urlencode({"tenantname": tenant_name})
+    panorama_url_with_tenant = f"{panorama_url}{separator}{query_params}"
+
     # Replace custom placeholders (Cognito will replace {username} and {####})
     template = template.replace("{{TENANT_NAME}}", tenant_name)
-    template = template.replace("{{PANORAMA_URL}}", panorama_url)
+    template = template.replace("{{PANORAMA_URL}}", panorama_url_with_tenant)
     return template
 
 
