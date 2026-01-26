@@ -21,9 +21,24 @@ def load_template(name: str) -> str:
     return template_path.read_text(encoding="utf-8")
 
 
-def get_invitation_email_template() -> str:
-    """Get the HTML invitation email template."""
-    return load_template("invitation_email")
+def get_invitation_email_template(
+    tenant_name: str = "Inspectio.ai",
+    panorama_url: str = "https://panorama.app.inspectio.ai",
+) -> str:
+    """Get the HTML invitation email template with dynamic values.
+
+    Args:
+        tenant_name: Name of the tenant to display in the email
+        panorama_url: URL to the Panorama login page
+
+    Returns:
+        Template content with placeholders replaced
+    """
+    template = load_template("invitation_email")
+    # Replace custom placeholders (Cognito will replace {username} and {####})
+    template = template.replace("{{TENANT_NAME}}", tenant_name)
+    template = template.replace("{{PANORAMA_URL}}", panorama_url)
+    return template
 
 
 def get_verification_email_template() -> str:

@@ -40,6 +40,10 @@ class PoolConfig:
     # Custom attributes to create
     custom_attributes: list[str] | None = None
 
+    # Email template customization (defaults provided as fallback)
+    tenant_name: str = "Inspectio.ai"
+    panorama_url: str = "https://panorama.app.inspectio.ai"
+
 
 @dataclass
 class PoolInfo:
