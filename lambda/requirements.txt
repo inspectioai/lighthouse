@@ -1,0 +1,2 @@
+lighthouse-identity @ git+https://github.com/inspectioai/lighthouse.git@main
+boto3>=1.34.0
