@@ -51,6 +51,12 @@ class PoolConfig:
     ses_source_arn: str | None = None  # e.g., "arn:aws:ses:us-east-1:123456:identity/domain.com"
     ses_from_address: str | None = None  # e.g., "Company <noreply@domain.com>"
 
+    # Lambda CustomMessage Trigger (optional - for styled password reset emails)
+    # If provided, Cognito will invoke this Lambda for CustomMessage events (e.g., password reset)
+    # The Lambda must have permission to be invoked by Cognito and should be configured
+    # with TENANT_NAME and PANORAMA_URL environment variables matching this pool's config
+    custom_message_lambda_arn: str | None = None  # e.g., "arn:aws:lambda:us-east-1:123456:function:cognito-custom-message"
+
 
 @dataclass
 class PoolInfo:
