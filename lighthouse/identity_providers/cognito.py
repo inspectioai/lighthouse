@@ -13,7 +13,7 @@ from botocore.exceptions import ClientError
 
 from lighthouse.core.identity_provider import IdentityProvider
 from lighthouse.core.tenant_resolver import TenantConfigResolver
-from lighthouse.templates import get_invitation_email_template, get_password_reset_email_template
+from lighthouse.templates import get_invitation_email_template
 from lighthouse.exceptions import (
     IdentityProviderError,
     InvalidCredentialsError,
@@ -204,15 +204,19 @@ class CognitoIdentityProvider(IdentityProvider):
                         ),
                     },
                 },
-                "VerificationMessageTemplate": {
-                    "DefaultEmailOption": "CONFIRM_WITH_CODE",
-                    "EmailSubject": f"Reset Your Password - {config.tenant_name}",
-                    "EmailMessage": get_password_reset_email_template(
-                        tenant_name=config.tenant_name,
-                        panorama_url=config.panorama_url,
-                    ),
-                },
             }
+
+            # Add Lambda CustomMessage trigger for styled password reset emails
+            # Note: VerificationMessageTemplate doesn't support HTML, only Lambda does
+            if config.custom_message_lambda_arn:
+                create_params["LambdaConfig"] = {
+                    "CustomMessage": config.custom_message_lambda_arn,
+                }
+                log.info(
+                    "cognito_pool_lambda_configured",
+                    pool_name=pool_name,
+                    lambda_arn=config.custom_message_lambda_arn,
+                )
 
             # Add verified sender email configuration if requested
             if config.use_verified_sender and config.ses_source_arn and config.ses_from_address:
