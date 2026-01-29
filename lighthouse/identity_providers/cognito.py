@@ -13,7 +13,7 @@ from botocore.exceptions import ClientError
 
 from lighthouse.core.identity_provider import IdentityProvider
 from lighthouse.core.tenant_resolver import TenantConfigResolver
-from lighthouse.templates import get_invitation_email_template
+from lighthouse.templates import get_invitation_email_template, get_password_reset_email_template
 from lighthouse.exceptions import (
     IdentityProviderError,
     InvalidCredentialsError,
@@ -203,6 +203,14 @@ class CognitoIdentityProvider(IdentityProvider):
                             panorama_url=config.panorama_url,
                         ),
                     },
+                },
+                "VerificationMessageTemplate": {
+                    "DefaultEmailOption": "CONFIRM_WITH_CODE",
+                    "EmailSubject": f"Reset Your Password - {config.tenant_name}",
+                    "EmailMessage": get_password_reset_email_template(
+                        tenant_name=config.tenant_name,
+                        panorama_url=config.panorama_url,
+                    ),
                 },
             }
 
