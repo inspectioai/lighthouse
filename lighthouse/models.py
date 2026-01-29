@@ -44,8 +44,12 @@ class PoolConfig:
     tenant_name: str = "Inspectio.ai"
     panorama_url: str = "https://panorama.app.inspectio.ai"
 
-    # Email configuration (optional SES integration)
-    ses_from_arn: str | None = None  # ARN for verified SES identity (e.g., arn:aws:ses:region:account:identity/no-reply@inspectio.ai)
+    # SES Email Configuration (optional)
+    # use_verified_sender=True → emails are sent via Cognito DEVELOPER account using a verified SES identity
+    # Requires ses_source_arn and ses_from_address to be set
+    use_verified_sender: bool = False
+    ses_source_arn: str | None = None  # e.g., "arn:aws:ses:us-east-1:123456:identity/domain.com"
+    ses_from_address: str | None = None  # e.g., "Company <noreply@domain.com>"
 
 
 @dataclass

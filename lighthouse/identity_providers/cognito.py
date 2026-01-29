@@ -206,12 +206,12 @@ class CognitoIdentityProvider(IdentityProvider):
                 },
             }
 
-            # Add email configuration if SES ARN is provided
-            if config.ses_from_arn:
+            # Add verified sender email configuration if requested
+            if config.use_verified_sender and config.ses_source_arn and config.ses_from_address:
                 create_params["EmailConfiguration"] = {
                     "EmailSendingAccount": "DEVELOPER",
-                    "SourceArn": config.ses_from_arn,
-                    "From": "Inspectio.ai <no-reply@inspectio.ai>",
+                    "SourceArn": config.ses_source_arn,
+                    "From": config.ses_from_address,
                 }
 
             # Create user pool
